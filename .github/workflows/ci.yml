@@ -34,11 +34,18 @@ jobs:
         with:
           dotnet-version: 8.0.x
       - run: dotnet run --project csharp/tests/Iso8583.Core.Tests -c Release
+      - run: dotnet pack csharp/src/Iso8583.Core/Iso8583.Core.csproj -c Release -o artifacts
+      - run: dotnet run --project csharp/benchmarks/Iso8583.Core.Benchmarks -c Release -- 10000
 
   cpp:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Release
+      - run: cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Release -DISO8583_BUILD_BENCHMARKS=ON
       - run: cmake --build cpp/build --parallel
       - run: ctest --test-dir cpp/build --output-on-failure
+      - run: cpp/build/iso8583_benchmarks 10000
+      - run: cmake --install cpp/build --prefix cpp/stage
+      - run: cmake -S cpp/tests/package -B cpp/package-build -DCMAKE_PREFIX_PATH="$PWD/cpp/stage"
+      - run: cmake --build cpp/package-build --parallel
+      - run: cpp/package-build/iso8583_package_consumer

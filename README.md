@@ -362,7 +362,7 @@ go test ./iso8583 -run '^$' -fuzz '^FuzzTransportUnframe$' -fuzztime 30s
 
 ### C#
 
-Until a NuGet package is published, reference `csharp/src/Iso8583.Core/Iso8583.Core.csproj` from the consuming solution.
+Download `Iso8583.Core.0.1.0.nupkg` from the GitHub release and add its directory as a NuGet package source, or reference `csharp/src/Iso8583.Core/Iso8583.Core.csproj` from the consuming solution.
 
 ```csharp
 using System.Text;
@@ -397,6 +397,7 @@ Run the test executable:
 
 ```sh
 dotnet run --project csharp/tests/Iso8583.Core.Tests -c Release
+dotnet run --project csharp/benchmarks/Iso8583.Core.Benchmarks -c Release
 ```
 
 ### C++
@@ -407,6 +408,8 @@ Add the repository with `add_subdirectory`, then link the exported target:
 add_subdirectory(path/to/Iso8583lib/cpp)
 target_link_libraries(your_target PRIVATE iso8583::core)
 ```
+
+For an installed package, configure this repository with an install prefix, install it, then use `find_package(iso8583_core 0.1 CONFIG REQUIRED)` and link the same `iso8583::core` target.
 
 ```cpp
 #include <cstdint>
@@ -438,9 +441,10 @@ Catch `std::invalid_argument` for malformed messages or values and `std::out_of_
 Build and test:
 
 ```sh
-cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Release
+cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Release -DISO8583_BUILD_BENCHMARKS=ON
 cmake --build cpp/build --parallel
 ctest --test-dir cpp/build --output-on-failure
+cpp/build/iso8583_benchmarks
 ```
 
 ## Conformance testing
@@ -458,7 +462,7 @@ This catches wire-format drift that independent round-trip tests can miss. See t
 
 Reuse output capacity in hot paths. Go's `AppendTo`, C#'s `TryWrite`, and C++'s `append_to` all write into caller-provided storage. Specifications can be shared across requests; messages should remain request-scoped.
 
-Benchmarks are machine-dependent. Run the included Go benchmark on deployment-class hardware rather than relying on README numbers.
+Benchmarks are machine-dependent. Run the included Go, C#, and C++ benchmarks on deployment-class hardware rather than relying on README numbers. They warm up the codec and report encode/parse round-trip time; the C# runner also reports thread-local allocation per operation.
 
 ## Scope and safety
 

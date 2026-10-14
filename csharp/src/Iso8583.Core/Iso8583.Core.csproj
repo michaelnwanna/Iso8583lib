@@ -5,6 +5,18 @@
     <Nullable>enable</Nullable>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <PackageId>Iso8583.Core</PackageId>
+    <Version>0.1.0</Version>
+    <Authors>Michael Nwanna</Authors>
     <Description>High-performance ISO 8583 message encoding and decoding.</Description>
+    <PackageTags>iso8583;payments;financial;codec</PackageTags>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <RepositoryUrl>https://github.com/michaelnwanna/Iso8583lib</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
   </PropertyGroup>
+  <ItemGroup>
+    <None Include="../../../README.md" Pack="true" PackagePath="README.md" />
+  </ItemGroup>
 </Project>
