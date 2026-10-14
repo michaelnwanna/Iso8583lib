@@ -69,7 +69,7 @@ cd go
 go test ./iso8583 -run '^$' -fuzz '^FuzzParse$' -fuzztime 1m
 ```
 
-Seeds include every golden payload. If random data parses and passes profile validation, re-encoding must produce the exact original bytes.
+Seeds include every golden payload. If random data parses and passes profile validation, canonical re-encoding must preserve the MTI and every field, and a second encoding must produce identical canonical bytes. The original bytes may differ when the input contains a redundant empty secondary bitmap.
 
 ### Profile parser
 

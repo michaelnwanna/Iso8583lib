@@ -22,9 +22,9 @@ jobs:
           go-version-file: go/go.mod
           cache-dependency-path: go/go.mod
       - run: go test -race ./...
-      - run: go test ./iso8583 -run '^$' -fuzz '^FuzzParse$' -fuzztime 5s
-      - run: go test ./iso8583 -run '^$' -fuzz '^FuzzParseProfileJSON$' -fuzztime 5s
-      - run: go test ./iso8583 -run '^$' -fuzz '^FuzzTransportUnframe$' -fuzztime 5s
+      - run: go test ./iso8583 -run '^$' -fuzz '^FuzzParse$' -fuzztime 5s -parallel 1
+      - run: go test ./iso8583 -run '^$' -fuzz '^FuzzParseProfileJSON$' -fuzztime 5s -parallel 1
+      - run: go test ./iso8583 -run '^$' -fuzz '^FuzzTransportUnframe$' -fuzztime 5s -parallel 1
 
   csharp:
     runs-on: ubuntu-latest

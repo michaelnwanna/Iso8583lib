@@ -24,8 +24,24 @@ func FuzzParse(f *testing.F) {
 		if err != nil {
 			t.Fatalf("parsed message could not be re-encoded: %v", err)
 		}
-		if !bytes.Equal(encoded, data) {
-			t.Fatalf("parse/encode changed payload: %X != %X", encoded, data)
+		canonical, err := Parse(encoded, profile.Spec)
+		if err != nil {
+			t.Fatalf("canonical payload could not be parsed: %v", err)
+		}
+		if canonical.MTI != message.MTI {
+			t.Fatalf("canonicalization changed MTI: %q != %q", canonical.MTI, message.MTI)
+		}
+		for number := 2; number <= MaxField; number++ {
+			if !bytes.Equal(canonical.Fields[number], message.Fields[number]) {
+				t.Fatalf("canonicalization changed field %d", number)
+			}
+		}
+		reencoded, err := canonical.AppendTo(nil, profile.Spec)
+		if err != nil {
+			t.Fatalf("canonical message could not be re-encoded: %v", err)
+		}
+		if !bytes.Equal(reencoded, encoded) {
+			t.Fatalf("canonical encoding is not idempotent: %X != %X", reencoded, encoded)
 		}
 	})
 }
