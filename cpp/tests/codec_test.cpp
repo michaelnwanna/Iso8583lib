@@ -1,6 +1,8 @@
 #include "iso8583/codec.hpp"
+#include "iso8583/profile.hpp"
 
 #include <cstdint>
+#include <fstream>
 #include <stdexcept>
 #include <vector>
 
@@ -102,4 +104,26 @@ int main() {
     require(terminal_response.field(39) == "00", "authorization was not approved");
     require(terminal_response.field(38) == "A12345", "authorization ID did not round trip");
     require(terminal_response.field(37) == acquirer_request.field(37), "RRN did not correlate");
+
+    std::ifstream profile_file(ISO8583_EXAMPLE_PROFILE);
+    require(profile_file.good(), "example profile could not be opened");
+    const auto configured_profile = iso8583::profile::load_json(profile_file);
+    configured_profile.validate(request);
+    std::vector<std::uint8_t> configured_payload;
+    request.append_to(configured_payload, configured_profile.message_spec());
+    std::vector<std::uint8_t> configured_frame;
+    configured_profile.transport().append_frame(configured_frame, configured_payload);
+    const auto unframed = configured_profile.transport().unframe(configured_frame);
+    const auto configured_message = iso8583::parse(
+        reinterpret_cast<const std::uint8_t*>(unframed.data()), unframed.size(), configured_profile.message_spec());
+    configured_profile.validate(configured_message);
+    require(configured_profile.field(2).sensitive, "PAN metadata is not marked sensitive");
+
+    iso8583::message incomplete_request("0100");
+    incomplete_request.set_field(2, "4111111111111111");
+    try {
+        configured_profile.validate(incomplete_request);
+        throw std::runtime_error("profile accepted a request missing required fields");
+    } catch (const std::invalid_argument&) {
+    }
 }

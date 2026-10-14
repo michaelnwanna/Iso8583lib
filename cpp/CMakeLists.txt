@@ -3,7 +3,7 @@ project(iso8583_core VERSION 0.1.0 LANGUAGES CXX)
 
 include(GNUInstallDirs)
 
-add_library(iso8583_core src/codec.cpp)
+add_library(iso8583_core src/codec.cpp src/profile.cpp)
 add_library(iso8583::core ALIAS iso8583_core)
 target_compile_features(iso8583_core PUBLIC cxx_std_17)
 target_include_directories(iso8583_core
@@ -16,6 +16,8 @@ if(ISO8583_BUILD_TESTS)
     enable_testing()
     add_executable(iso8583_tests tests/codec_test.cpp)
     target_link_libraries(iso8583_tests PRIVATE iso8583::core)
+    target_compile_definitions(iso8583_tests PRIVATE
+        ISO8583_EXAMPLE_PROFILE="${CMAKE_CURRENT_SOURCE_DIR}/../profiles/example-acquirer.json")
     add_test(NAME iso8583_tests COMMAND iso8583_tests)
 endif()
 

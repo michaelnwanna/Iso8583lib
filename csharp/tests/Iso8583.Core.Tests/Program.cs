@@ -83,6 +83,26 @@ Assert(Encoding.ASCII.GetString(terminalResponse.GetField(39).Span) == "00", "Au
 Assert(Encoding.ASCII.GetString(terminalResponse.GetField(38).Span) == "A12345", "Authorization ID did not round trip");
 Assert(terminalResponse.GetField(37).Span.SequenceEqual(acquirerRequest.GetField(37).Span), "RRN did not correlate");
 
+using var profileFile = File.OpenRead(Path.Combine(AppContext.BaseDirectory, "example-acquirer.json"));
+var configuredProfile = Profile.LoadJson(profileFile);
+configuredProfile.Validate(request);
+var configuredPayload = request.Encode(configuredProfile.Spec);
+var configuredFrame = configuredProfile.Transport.Frame(configuredPayload);
+var configuredMessage = Message.Parse(configuredProfile.Transport.Unframe(configuredFrame), configuredProfile.Spec);
+configuredProfile.Validate(configuredMessage);
+Assert(configuredProfile.GetFieldDefinition(2).Sensitive, "PAN metadata is not marked sensitive");
+
+var incompleteRequest = new Message("0100");
+incompleteRequest.SetField(2, "4111111111111111"u8);
+try
+{
+    configuredProfile.Validate(incompleteRequest);
+    throw new Exception("Profile accepted a request missing required fields.");
+}
+catch (InvalidOperationException)
+{
+}
+
 static void Assert(bool condition, string message)
 {
     if (!condition)

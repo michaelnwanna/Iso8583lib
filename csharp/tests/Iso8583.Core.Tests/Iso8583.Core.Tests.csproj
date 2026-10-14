@@ -8,5 +8,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/Iso8583.Core/Iso8583.Core.csproj" />
+    <None Include="../../../profiles/example-acquirer.json" Link="example-acquirer.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

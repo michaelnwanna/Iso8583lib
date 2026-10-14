@@ -1,0 +1,40 @@
+{
+    "name": "example-acquirer-v1",
+    "transport": {
+        "headerBytes": 2,
+        "lengthEncoding": "binary-big-endian",
+        "maxMessageBytes": 4096
+    },
+    "fields": {
+        "2": { "name": "Primary account number", "lengthType": "llvar", "length": 19, "encoding": "ascii", "content": "numeric", "sensitive": true },
+        "3": { "name": "Processing code", "lengthType": "fixed", "length": 6, "encoding": "ascii", "content": "numeric" },
+        "4": { "name": "Transaction amount", "lengthType": "fixed", "length": 12, "encoding": "ascii", "content": "numeric" },
+        "7": { "name": "Transmission date and time", "lengthType": "fixed", "length": 10, "encoding": "ascii", "content": "numeric" },
+        "11": { "name": "Systems trace audit number", "lengthType": "fixed", "length": 6, "encoding": "ascii", "content": "numeric" },
+        "12": { "name": "Local transaction time", "lengthType": "fixed", "length": 6, "encoding": "ascii", "content": "numeric" },
+        "13": { "name": "Local transaction date", "lengthType": "fixed", "length": 4, "encoding": "ascii", "content": "numeric" },
+        "14": { "name": "Expiration date", "lengthType": "fixed", "length": 4, "encoding": "ascii", "content": "numeric", "sensitive": true },
+        "18": { "name": "Merchant category code", "lengthType": "fixed", "length": 4, "encoding": "ascii", "content": "numeric" },
+        "22": { "name": "Point-of-service entry mode", "lengthType": "fixed", "length": 3, "encoding": "ascii", "content": "numeric" },
+        "25": { "name": "Point-of-service condition code", "lengthType": "fixed", "length": 2, "encoding": "ascii", "content": "numeric" },
+        "32": { "name": "Acquiring institution identifier", "lengthType": "llvar", "length": 11, "encoding": "ascii", "content": "numeric" },
+        "37": { "name": "Retrieval reference number", "lengthType": "fixed", "length": 12, "encoding": "ascii", "content": "text" },
+        "38": { "name": "Authorization identification response", "lengthType": "fixed", "length": 6, "encoding": "ascii", "content": "text" },
+        "39": { "name": "Response code", "lengthType": "fixed", "length": 2, "encoding": "ascii", "content": "text" },
+        "41": { "name": "Terminal identifier", "lengthType": "fixed", "length": 8, "encoding": "ascii", "content": "text" },
+        "42": { "name": "Merchant identifier", "lengthType": "fixed", "length": 15, "encoding": "ascii", "content": "text" },
+        "48": { "name": "Additional private data", "lengthType": "lllvar", "length": 999, "encoding": "binary", "content": "bytes", "sensitive": true },
+        "49": { "name": "Transaction currency code", "lengthType": "fixed", "length": 3, "encoding": "ascii", "content": "numeric" },
+        "64": { "name": "Message authentication code", "lengthType": "fixed", "length": 8, "encoding": "binary", "content": "bytes", "sensitive": true },
+        "70": { "name": "Network management information code", "lengthType": "fixed", "length": 3, "encoding": "ascii", "content": "numeric" },
+        "128": { "name": "Secondary message authentication code", "lengthType": "fixed", "length": 8, "encoding": "binary", "content": "bytes", "sensitive": true }
+    },
+    "messages": {
+        "0100": { "required": [2, 3, 4, 7, 11, 22, 37, 41, 42, 49] },
+        "0110": { "required": [3, 4, 11, 37, 39, 41, 42, 49] },
+        "0200": { "required": [2, 3, 4, 7, 11, 22, 37, 41, 42, 49] },
+        "0210": { "required": [3, 4, 11, 37, 39, 41, 42, 49] },
+        "0800": { "required": [7, 11, 70] },
+        "0810": { "required": [7, 11, 39, 70] }
+    }
+}

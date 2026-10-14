@@ -96,6 +96,7 @@ func (message Message) AppendTo(destination []byte, spec Spec) ([]byte, error) {
 			return destination[:start], fmt.Errorf("iso8583: field %d exceeds %d bytes", number, field.Length)
 		}
 
+		bitmap = destination[start+4 : start+4+bitmapBytes]
 		index := number - 1
 		bitmap[index/8] |= 1 << (7 - index%8)
 		if field.LengthType == LLVAR {

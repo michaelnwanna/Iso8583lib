@@ -7,6 +7,8 @@ A dependency-free, performance-oriented ISO 8583 codec implemented consistently 
 - Binary primary and secondary bitmaps (fields 2-128)
 - Fixed, LLVAR, and LLLVAR byte fields
 - Strict validation for undefined, oversized, truncated, and trailing data
+- Strict host profiles loaded from JSON with per-MTI required fields
+- Configurable binary/ASCII transport length headers
 - Caller-owned output buffers in each implementation's fast path
 - Immutable message specifications after construction
 - No runtime dependencies outside each language's standard library
@@ -139,6 +141,97 @@ Each implementation uses an array indexed by field number. Field lookup is $O(1)
 4. Validate profile semantics such as required fields, numeric content, supported MTIs, currency, and allowed processing codes.
 5. Perform routing or authorization and construct a new response message. Do not mutate and reuse a request across transactions.
 6. Encode into reusable output storage, add the network framing, and send the response.
+
+### Host-configured profiles
+
+Host applications can load a complete network contract from JSON instead of compiling field definitions into application code. See [`profiles/example-acquirer.json`](profiles/example-acquirer.json) and validate custom files against [`profiles/profile.schema.json`](profiles/profile.schema.json).
+
+```json
+{
+    "name": "my-acquirer-v1",
+    "transport": {
+        "headerBytes": 2,
+        "lengthEncoding": "binary-big-endian",
+        "maxMessageBytes": 4096
+    },
+    "fields": {
+        "2": {
+            "name": "Primary account number",
+            "lengthType": "llvar",
+            "length": 19,
+            "encoding": "ascii",
+            "content": "numeric",
+            "sensitive": true
+        },
+        "3": {
+            "name": "Processing code",
+            "lengthType": "fixed",
+            "length": 6,
+            "encoding": "ascii",
+            "content": "numeric"
+        }
+    },
+    "messages": {
+        "0100": { "required": [2, 3] }
+    }
+}
+```
+
+| Property | Meaning |
+| --- | --- |
+| `name` | Versioned profile identity used in diagnostics and deployment configuration |
+| `transport.headerBytes` | `0` for an unframed payload, or a `2`/`4` byte length header |
+| `transport.lengthEncoding` | `binary-big-endian` or decimal `ascii`; omit when `headerBytes` is `0` |
+| `transport.maxMessageBytes` | Upper bound checked before allocation or payload acceptance |
+| `lengthType` | `fixed`, `llvar`, or `lllvar` |
+| `length` | Exact byte count for fixed fields; maximum for variable fields |
+| `encoding` | `ascii` or opaque `binary` payload validation |
+| `content` | `numeric`, printable `text`, or unrestricted `bytes` validation |
+| `sensitive` | Metadata for host redaction/logging policy; the codec never logs fields itself |
+| `messages.<MTI>.required` | Fields that must be present for that MTI |
+
+Load once during application startup and fail deployment if the profile is invalid:
+
+```go
+file, err := os.Open("profiles/my-acquirer.json")
+if err != nil {
+    return err
+}
+defer file.Close()
+profile, err := iso8583.LoadProfileJSON(file)
+```
+
+```csharp
+using var file = File.OpenRead("profiles/my-acquirer.json");
+var profile = Profile.LoadJson(file);
+```
+
+```cpp
+std::ifstream file("profiles/my-acquirer.json");
+const auto profile = iso8583::profile::load_json(file);
+```
+
+For an inbound transaction, unframe first, parse with the generated codec specification, then apply semantic profile validation:
+
+```go
+payload, err := profile.Transport.Unframe(networkFrame)
+if err != nil {
+    return err
+}
+message, err := iso8583.Parse(payload, profile.Spec)
+if err != nil {
+    return err
+}
+if err := profile.Validate(message); err != nil {
+    return err
+}
+```
+
+For outbound data, call `Validate`, encode with the profile's `Spec`/`MessageSpec`/`message_spec()`, then call `AppendFrame`, `Frame`/`TryWriteFrame`, or `append_frame`. Validation intentionally remains explicit so applications can distinguish malformed wire data from a well-formed message that violates business/profile rules.
+
+Profiles are strict: unknown JSON properties, unsupported MTIs, undefined required fields, duplicate requirements, invalid lengths, non-ASCII data, non-numeric numeric fields, malformed frames, and oversized payloads are rejected. The `sensitive` flag is descriptive metadata; the host must enforce redaction and access controls.
+
+Packed BCD, EBCDIC, TLV subfields, MAC generation/verification, encryption, and key management require institution-specific adapters. They are deliberately not inferred from configuration because silently choosing those rules would be unsafe.
 
 ### Encoding internals
 

@@ -1,0 +1,63 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://github.com/michaelnwanna/Iso8583lib/profiles/profile.schema.json",
+    "title": "ISO 8583 host profile",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["name", "transport", "fields", "messages"],
+    "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "transport": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["headerBytes", "maxMessageBytes"],
+            "properties": {
+                "headerBytes": { "enum": [0, 2, 4] },
+                "lengthEncoding": { "enum": ["binary-big-endian", "ascii"] },
+                "maxMessageBytes": { "type": "integer", "minimum": 1 }
+            },
+            "allOf": [
+                {
+                    "if": { "properties": { "headerBytes": { "const": 0 } }, "required": ["headerBytes"] },
+                    "then": { "not": { "required": ["lengthEncoding"] } },
+                    "else": { "required": ["lengthEncoding"] }
+                }
+            ]
+        },
+        "fields": {
+            "type": "object",
+            "minProperties": 1,
+            "propertyNames": { "pattern": "^(?:[2-9]|[1-9][0-9]|1[01][0-9]|12[0-8])$" },
+            "additionalProperties": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["name", "lengthType", "length", "encoding", "content"],
+                "properties": {
+                    "name": { "type": "string", "minLength": 1 },
+                    "lengthType": { "enum": ["fixed", "llvar", "lllvar"] },
+                    "length": { "type": "integer", "minimum": 1, "maximum": 999 },
+                    "encoding": { "enum": ["ascii", "binary"] },
+                    "content": { "enum": ["numeric", "text", "bytes"] },
+                    "sensitive": { "type": "boolean", "default": false }
+                }
+            }
+        },
+        "messages": {
+            "type": "object",
+            "minProperties": 1,
+            "propertyNames": { "pattern": "^[0-9]{4}$" },
+            "additionalProperties": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["required"],
+                "properties": {
+                    "required": {
+                        "type": "array",
+                        "uniqueItems": true,
+                        "items": { "type": "integer", "minimum": 2, "maximum": 128 }
+                    }
+                }
+            }
+        }
+    }
+}
