@@ -13,7 +13,6 @@
 
 namespace iso8583 {
 
-enum class data_encoding : std::uint8_t { ascii, binary };
 enum class content_type : std::uint8_t { numeric, text, bytes };
 enum class length_encoding : std::uint8_t { none, binary_big_endian, ascii };
 
@@ -45,6 +44,12 @@ public:
     std::string_view unframe(const std::uint8_t* frame, std::size_t size) const;
     std::string_view unframe(const std::vector<std::uint8_t>& frame) const {
         return unframe(frame.data(), frame.size());
+    }
+    bool try_read_frame(const std::uint8_t* data, std::size_t size, std::string_view& payload,
+                        std::size_t& consumed) const;
+    bool try_read_frame(const std::vector<std::uint8_t>& data, std::string_view& payload,
+                        std::size_t& consumed) const {
+        return try_read_frame(data.data(), data.size(), payload, consumed);
     }
 
 private:

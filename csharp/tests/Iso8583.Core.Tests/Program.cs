@@ -124,6 +124,32 @@ catch (InvalidOperationException)
 {
 }
 
+var bcdProfile = Profile.ParseJson("""
+{
+  "name":"bcd",
+  "transport":{"headerBytes":2,"lengthEncoding":"binary-big-endian","maxMessageBytes":128},
+  "fields":{"2":{"name":"PAN","lengthType":"llvar","length":19,"encoding":"bcd","lengthEncoding":"bcd","content":"numeric"}},
+  "messages":{"0100":{"required":[2]}}
+}
+"""u8);
+var bcdMessage = new Message("0100");
+bcdMessage.SetField(2, "123456789012345"u8);
+bcdProfile.Validate(bcdMessage);
+var bcdWire = bcdMessage.Encode(bcdProfile.Spec);
+Assert(bcdWire.AsSpan(12).SequenceEqual(new byte[] { 0x15, 0x01, 0x23, 0x45, 0x67, 0x89, 0x01, 0x23, 0x45 }),
+    "Packed BCD wire data differs");
+Assert(Message.Parse(bcdWire, bcdProfile.Spec).GetField(2).Span.SequenceEqual("123456789012345"u8),
+    "Packed BCD field did not round trip");
+
+var firstFrame = bcdProfile.Transport.Frame("first"u8);
+var secondFrame = bcdProfile.Transport.Frame("second"u8);
+var stream = firstFrame.Concat(secondFrame).ToArray();
+Assert(!bcdProfile.Transport.TryReadFrame(stream.AsSpan(0, 4), out _, out _), "Partial frame was reported complete");
+Assert(bcdProfile.Transport.TryReadFrame(stream, out var firstPayload, out var firstConsumed) &&
+    firstPayload.SequenceEqual("first"u8) && firstConsumed == firstFrame.Length, "First stream frame differs");
+Assert(bcdProfile.Transport.TryReadFrame(stream.AsSpan(firstConsumed), out var secondPayload, out var secondConsumed) &&
+    secondPayload.SequenceEqual("second"u8) && secondConsumed == secondFrame.Length, "Second stream frame differs");
+
 static List<ConformanceVector> LoadVectors(string path)
 {
     var vectors = new List<ConformanceVector>();

@@ -5,7 +5,7 @@
     <Nullable>enable</Nullable>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <PackageId>Iso8583.Core</PackageId>
-    <Version>0.1.0</Version>
+    <Version>0.2.0</Version>
     <Authors>Michael Nwanna</Authors>
     <Description>High-performance ISO 8583 message encoding and decoding.</Description>
     <PackageTags>iso8583;payments;financial;codec</PackageTags>

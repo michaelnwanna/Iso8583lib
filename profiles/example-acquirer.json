@@ -25,6 +25,7 @@
         "42": { "name": "Merchant identifier", "lengthType": "fixed", "length": 15, "encoding": "ascii", "content": "text" },
         "48": { "name": "Additional private data", "lengthType": "lllvar", "length": 999, "encoding": "binary", "content": "bytes", "sensitive": true },
         "49": { "name": "Transaction currency code", "lengthType": "fixed", "length": 3, "encoding": "ascii", "content": "numeric" },
+        "60": { "name": "Private packed numeric data", "lengthType": "lllvar", "length": 999, "encoding": "bcd", "lengthEncoding": "bcd", "content": "numeric", "sensitive": true },
         "64": { "name": "Message authentication code", "lengthType": "fixed", "length": 8, "encoding": "binary", "content": "bytes", "sensitive": true },
         "70": { "name": "Network management information code", "lengthType": "fixed", "length": 3, "encoding": "ascii", "content": "numeric" },
         "128": { "name": "Secondary message authentication code", "lengthType": "fixed", "length": 8, "encoding": "binary", "content": "bytes", "sensitive": true }

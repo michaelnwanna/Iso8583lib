@@ -36,10 +36,25 @@
                     "name": { "type": "string", "minLength": 1 },
                     "lengthType": { "enum": ["fixed", "llvar", "lllvar"] },
                     "length": { "type": "integer", "minimum": 1, "maximum": 999 },
-                    "encoding": { "enum": ["ascii", "binary"] },
+                    "encoding": { "enum": ["ascii", "binary", "bcd"] },
+                    "lengthEncoding": { "enum": ["ascii", "bcd"], "default": "ascii" },
                     "content": { "enum": ["numeric", "text", "bytes"] },
                     "sensitive": { "type": "boolean", "default": false }
-                }
+                },
+                "allOf": [
+                    {
+                        "if": { "properties": { "encoding": { "const": "binary" } }, "required": ["encoding"] },
+                        "then": { "properties": { "content": { "const": "bytes" } } }
+                    },
+                    {
+                        "if": { "properties": { "encoding": { "const": "bcd" } }, "required": ["encoding"] },
+                        "then": { "properties": { "content": { "const": "numeric" } } }
+                    },
+                    {
+                        "if": { "properties": { "lengthType": { "const": "fixed" } }, "required": ["lengthType"] },
+                        "then": { "properties": { "lengthEncoding": { "const": "ascii" } } }
+                    }
+                ]
             }
         },
         "messages": {

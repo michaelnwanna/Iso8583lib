@@ -114,3 +114,45 @@ func TestTransportRejectsLengthMismatchAndSupportsNoHeader(t *testing.T) {
 		t.Fatal("headerless transport changed the payload")
 	}
 }
+
+func TestProfileConfiguresPackedBCD(t *testing.T) {
+	profile, err := ParseProfileJSON([]byte(`{
+		"name":"bcd", "transport":{"headerBytes":2,"lengthEncoding":"binary-big-endian","maxMessageBytes":128},
+		"fields":{"2":{"name":"PAN","lengthType":"llvar","length":19,"encoding":"bcd","lengthEncoding":"bcd","content":"numeric"}},
+		"messages":{"0100":{"required":[2]}}
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	message, _ := NewMessage("0100")
+	_ = message.SetField(2, []byte("123456789012345"))
+	if err := profile.Validate(message); err != nil {
+		t.Fatal(err)
+	}
+	wire, err := message.AppendTo(nil, profile.Spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(wire[12:], []byte{0x15, 0x01, 0x23, 0x45, 0x67, 0x89, 0x01, 0x23, 0x45}) {
+		t.Fatalf("unexpected profile BCD wire data: %x", wire[12:])
+	}
+}
+
+func TestTransportReadsPartialAndConcatenatedFrames(t *testing.T) {
+	transport := TransportSpec{HeaderBytes: 2, LengthEncoding: BinaryBigEndian, MaxMessageBytes: 128}
+	first, _ := transport.AppendFrame(nil, []byte("first"))
+	second, _ := transport.AppendFrame(nil, []byte("second"))
+	stream := append(first, second...)
+
+	if _, _, complete, err := transport.TryReadFrame(stream[:4]); err != nil || complete {
+		t.Fatalf("partial frame result: complete=%v err=%v", complete, err)
+	}
+	payload, consumed, complete, err := transport.TryReadFrame(stream)
+	if err != nil || !complete || consumed != len(first) || string(payload) != "first" {
+		t.Fatalf("first frame result: payload=%q consumed=%d complete=%v err=%v", payload, consumed, complete, err)
+	}
+	payload, consumed, complete, err = transport.TryReadFrame(stream[consumed:])
+	if err != nil || !complete || consumed != len(second) || string(payload) != "second" {
+		t.Fatalf("second frame result: payload=%q consumed=%d complete=%v err=%v", payload, consumed, complete, err)
+	}
+}

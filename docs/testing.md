@@ -22,7 +22,7 @@ name|MTI|field=value;field=value|payload-hex|framed-hex
 - Framed hex is the configured transport header followed by the exact payload.
 - `|`, `;`, and `=` are reserved delimiters and cannot appear in field values.
 
-The current file uses [`example-acquirer.json`](../profiles/example-acquirer.json). If a vector needs binary field data or delimiter characters, version the format before changing parser behavior in all three languages.
+The current file uses [`example-acquirer.json`](../profiles/example-acquirer.json) and includes ASCII plus packed-BCD wire cases. If a vector needs arbitrary binary field data or delimiter characters, version the format before changing parser behavior in all three languages.
 
 ## Adding a vector
 

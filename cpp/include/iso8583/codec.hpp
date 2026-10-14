@@ -13,10 +13,14 @@ namespace iso8583 {
 constexpr std::size_t max_field = 128;
 
 enum class length_type : std::uint8_t { fixed, llvar, lllvar };
+enum class data_encoding : std::uint8_t { ascii, binary, packed_bcd };
+enum class field_length_encoding : std::uint8_t { ascii, bcd };
 
 struct field_spec {
     length_type type;
     std::size_t length;
+    data_encoding encoding{data_encoding::ascii};
+    field_length_encoding length_encoding{field_length_encoding::ascii};
 };
 
 class spec {

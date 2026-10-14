@@ -203,4 +203,35 @@ int main() {
         throw std::runtime_error("profile accepted a request missing required fields");
     } catch (const std::invalid_argument&) {
     }
+
+        const auto bcd_profile = iso8583::profile::parse_json(R"({
+        "name":"bcd",
+        "transport":{"headerBytes":2,"lengthEncoding":"binary-big-endian","maxMessageBytes":128},
+        "fields":{"2":{"name":"PAN","lengthType":"llvar","length":19,"encoding":"bcd","lengthEncoding":"bcd","content":"numeric"}},
+        "messages":{"0100":{"required":[2]}}
+        })");
+        iso8583::message bcd_message("0100");
+        bcd_message.set_field(2, "123456789012345");
+        bcd_profile.validate(bcd_message);
+        std::vector<std::uint8_t> bcd_wire;
+        bcd_message.append_to(bcd_wire, bcd_profile.message_spec());
+        const std::vector<std::uint8_t> expected_bcd{0x15, 0x01, 0x23, 0x45, 0x67, 0x89, 0x01, 0x23, 0x45};
+        require(std::vector<std::uint8_t>(bcd_wire.begin() + 12, bcd_wire.end()) == expected_bcd,
+            "packed BCD wire data differs");
+        require(iso8583::parse(bcd_wire, bcd_profile.message_spec()).field(2) == "123456789012345",
+            "packed BCD field did not round trip");
+
+        std::vector<std::uint8_t> stream;
+        bcd_profile.transport().append_frame(stream, reinterpret_cast<const std::uint8_t*>("first"), 5);
+        const auto first_size = stream.size();
+        bcd_profile.transport().append_frame(stream, reinterpret_cast<const std::uint8_t*>("second"), 6);
+        std::string_view payload;
+        std::size_t consumed = 0;
+        require(!bcd_profile.transport().try_read_frame(stream.data(), 4, payload, consumed),
+            "partial frame was reported complete");
+        require(bcd_profile.transport().try_read_frame(stream, payload, consumed) && payload == "first" && consumed == first_size,
+            "first stream frame differs");
+        std::size_t second_consumed = 0;
+        require(bcd_profile.transport().try_read_frame(stream.data() + consumed, stream.size() - consumed, payload, second_consumed) &&
+            payload == "second" && second_consumed == stream.size() - consumed, "second stream frame differs");
 }

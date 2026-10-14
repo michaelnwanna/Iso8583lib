@@ -10,7 +10,14 @@ public enum LengthType : byte
     Lllvar
 }
 
-public readonly record struct FieldSpec(LengthType LengthType, int Length);
+public enum FieldEncoding : byte { Ascii, Binary, PackedBcd }
+public enum FieldLengthEncoding : byte { Ascii, Bcd }
+
+public readonly record struct FieldSpec(
+    LengthType LengthType,
+    int Length,
+    FieldEncoding Encoding = FieldEncoding.Ascii,
+    FieldLengthEncoding LengthEncoding = FieldLengthEncoding.Ascii);
 
 public sealed class MessageSpec
 {
@@ -24,7 +31,8 @@ public sealed class MessageSpec
             CheckNumber(number);
             if (field.Length <= 0 ||
                 field.LengthType is LengthType.Llvar && field.Length > 99 ||
-                field.LengthType is LengthType.Lllvar && field.Length > 999)
+                field.LengthType is LengthType.Lllvar && field.Length > 999 ||
+                field.LengthType is LengthType.Fixed && field.LengthEncoding != FieldLengthEncoding.Ascii)
             {
                 throw new ArgumentException($"Field {number} has an invalid specification.", nameof(definitions));
             }
@@ -87,7 +95,7 @@ public sealed class Message
             }
 
             var field = ValidateField(spec, number, value.Length);
-            length += value.Length + PrefixLength(field.LengthType);
+            length += WireLength(value.Length, field.Encoding) + PrefixLength(field);
         }
 
         return length;
@@ -123,15 +131,22 @@ public sealed class Message
             var field = spec[number];
             var bit = number - 1;
             bitmap[bit / 8] |= (byte)(1 << (7 - bit % 8));
-            var prefix = PrefixLength(field.LengthType);
+            var prefix = PrefixLength(field);
             if (prefix != 0)
             {
-                WriteLength(destination.Slice(offset, prefix), value.Length);
+                WriteLength(destination.Slice(offset, prefix), value.Length, field.LengthEncoding);
                 offset += prefix;
             }
 
-            value.CopyTo(destination[offset..]);
-            offset += value.Length;
+            if (field.Encoding == FieldEncoding.PackedBcd)
+            {
+                WritePackedBcd(value, destination[offset..]);
+            }
+            else
+            {
+                value.CopyTo(destination[offset..]);
+            }
+            offset += WireLength(value.Length, field.Encoding);
         }
 
         bytesWritten = offset;
@@ -176,11 +191,11 @@ public sealed class Message
                 throw new FormatException($"Field {number} is not defined.");
             }
 
-            var prefix = PrefixLength(field.LengthType);
+            var prefix = PrefixLength(field);
             var length = field.Length;
             if (prefix != 0)
             {
-                length = ParseLength(data, offset, prefix);
+                length = ParseLength(data, offset, prefix, field.LengthEncoding);
                 offset += prefix;
                 if (length > field.Length)
                 {
@@ -188,13 +203,16 @@ public sealed class Message
                 }
             }
 
-            if (offset > data.Length || length > data.Length - offset)
+            var wireLength = WireLength(length, field.Encoding);
+            if (offset > data.Length || wireLength > data.Length - offset)
             {
                 throw new FormatException($"Field {number} is truncated.");
             }
 
-            output.fields[number] = data.Slice(offset, length).ToArray();
-            offset += length;
+            output.fields[number] = field.Encoding == FieldEncoding.PackedBcd
+                ? ReadPackedBcd(data.Slice(offset, wireLength), length)
+                : data.Slice(offset, wireLength).ToArray();
+            offset += wireLength;
         }
 
         if (offset != data.Length)
@@ -232,18 +250,39 @@ public sealed class Message
             throw new InvalidOperationException($"Field {number} has an invalid length.");
         }
 
+        if (field.Encoding == FieldEncoding.PackedBcd)
+        {
+            var value = fields[number]!;
+            if (value.Any(digit => digit is < (byte)'0' or > (byte)'9'))
+            {
+                throw new InvalidOperationException($"Field {number} is not numeric.");
+            }
+        }
+
         return field;
     }
 
-    private static int PrefixLength(LengthType type) => type switch
+    private static int PrefixLength(FieldSpec field)
     {
-        LengthType.Llvar => 2,
-        LengthType.Lllvar => 3,
-        _ => 0
-    };
+        if (field.LengthType == LengthType.Fixed)
+        {
+            return 0;
+        }
+        var digits = field.LengthType == LengthType.Llvar ? 2 : 3;
+        return field.LengthEncoding == FieldLengthEncoding.Bcd ? (digits + 1) / 2 : digits;
+    }
 
-    private static void WriteLength(Span<byte> destination, int length)
+    private static void WriteLength(Span<byte> destination, int length, FieldLengthEncoding encoding)
     {
+        if (encoding == FieldLengthEncoding.Bcd)
+        {
+            for (var index = destination.Length - 1; index >= 0; index--)
+            {
+                destination[index] = (byte)(length % 10 | length / 10 % 10 << 4);
+                length /= 100;
+            }
+            return;
+        }
         for (var index = destination.Length - 1; index >= 0; index--)
         {
             destination[index] = (byte)('0' + length % 10);
@@ -251,15 +290,29 @@ public sealed class Message
         }
     }
 
-    private static int ParseLength(ReadOnlySpan<byte> data, int offset, int digits)
+    private static int ParseLength(ReadOnlySpan<byte> data, int offset, int bytes, FieldLengthEncoding encoding)
     {
-        if (offset > data.Length || digits > data.Length - offset)
+        if (offset > data.Length || bytes > data.Length - offset)
         {
             throw new FormatException("Field length is truncated.");
         }
 
         var length = 0;
-        foreach (var digit in data.Slice(offset, digits))
+        if (encoding == FieldLengthEncoding.Bcd)
+        {
+            var bcdLength = 0;
+            foreach (var value in data.Slice(offset, bytes))
+            {
+                if ((value >> 4) > 9 || (value & 0x0f) > 9)
+                {
+                    throw new FormatException("Field length is not decimal BCD.");
+                }
+                bcdLength = bcdLength * 100 + (value >> 4) * 10 + (value & 0x0f);
+            }
+            return bcdLength;
+        }
+
+        foreach (var digit in data.Slice(offset, bytes))
         {
             if (digit is < (byte)'0' or > (byte)'9')
             {
@@ -270,5 +323,43 @@ public sealed class Message
         }
 
         return length;
+    }
+
+    private static int WireLength(int digits, FieldEncoding encoding) =>
+        encoding == FieldEncoding.PackedBcd ? (digits + 1) / 2 : digits;
+
+    private static void WritePackedBcd(ReadOnlySpan<byte> value, Span<byte> destination)
+    {
+        var source = 0;
+        var target = 0;
+        if (value.Length % 2 != 0)
+        {
+            destination[target++] = (byte)(value[source++] - '0');
+        }
+        while (source < value.Length)
+        {
+            destination[target++] = (byte)((value[source++] - '0') << 4 | value[source++] - '0');
+        }
+    }
+
+    private static byte[] ReadPackedBcd(ReadOnlySpan<byte> data, int digits)
+    {
+        var output = new byte[digits];
+        var target = 0;
+        for (var index = 0; index < data.Length; index++)
+        {
+            var high = data[index] >> 4;
+            var low = data[index] & 0x0f;
+            if (high > 9 || low > 9 || digits % 2 != 0 && index == 0 && high != 0)
+            {
+                throw new FormatException("Field contains invalid packed BCD data.");
+            }
+            if (digits % 2 == 0 || index != 0)
+            {
+                output[target++] = (byte)('0' + high);
+            }
+            output[target++] = (byte)('0' + low);
+        }
+        return output;
     }
 }

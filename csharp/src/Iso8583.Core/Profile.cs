@@ -4,7 +4,6 @@ using System.Text.Json.Serialization;
 
 namespace Iso8583.Core;
 
-public enum FieldEncoding : byte { Ascii, Binary }
 public enum FieldContent : byte { Numeric, Text, Bytes }
 public enum LengthHeaderEncoding : byte { None, BinaryBigEndian, Ascii }
 
@@ -86,6 +85,43 @@ public sealed class TransportSpec
         }
 
         return frame[HeaderBytes..];
+    }
+
+    public bool TryReadFrame(ReadOnlySpan<byte> data, out ReadOnlySpan<byte> payload, out int consumed)
+    {
+        payload = default;
+        consumed = 0;
+        if (HeaderBytes == 0)
+        {
+            if (data.IsEmpty)
+            {
+                return false;
+            }
+            if (data.Length > MaxMessageBytes)
+            {
+                throw new FormatException($"Payload exceeds {MaxMessageBytes} bytes.");
+            }
+            payload = data;
+            consumed = data.Length;
+            return true;
+        }
+        if (data.Length < HeaderBytes)
+        {
+            return false;
+        }
+        var length = ReadLength(data[..HeaderBytes]);
+        if (length > MaxMessageBytes)
+        {
+            throw new FormatException($"Framed payload exceeds {MaxMessageBytes} bytes.");
+        }
+        var required = HeaderBytes + length;
+        if (data.Length < required)
+        {
+            return false;
+        }
+        payload = data.Slice(HeaderBytes, length);
+        consumed = required;
+        return true;
     }
 
     private void WriteLength(Span<byte> header, int length)
@@ -271,6 +307,7 @@ public sealed class Profile
             {
                 "ascii" => FieldEncoding.Ascii,
                 "binary" => FieldEncoding.Binary,
+                "bcd" => FieldEncoding.PackedBcd,
                 _ => throw new FormatException($"Field {number} has an invalid encoding.")
             };
             var content = field.Content switch
@@ -280,12 +317,20 @@ public sealed class Profile
                 "bytes" => FieldContent.Bytes,
                 _ => throw new FormatException($"Field {number} has an invalid content type.")
             };
-            if (string.IsNullOrWhiteSpace(field.Name) || encoding == FieldEncoding.Binary && content != FieldContent.Bytes)
+            if (string.IsNullOrWhiteSpace(field.Name) ||
+                encoding == FieldEncoding.Binary && content != FieldContent.Bytes ||
+                encoding == FieldEncoding.PackedBcd && content != FieldContent.Numeric)
             {
                 throw new FormatException($"Field {number} has invalid metadata.");
             }
 
-            var fieldSpec = new FieldSpec(lengthType, field.Length);
+            var lengthEncoding = field.LengthEncoding switch
+            {
+                "" or "ascii" => FieldLengthEncoding.Ascii,
+                "bcd" => FieldLengthEncoding.Bcd,
+                _ => throw new FormatException($"Field {number} has an invalid length encoding.")
+            };
+            var fieldSpec = new FieldSpec(lengthType, field.Length, encoding, lengthEncoding);
             specifications[number] = fieldSpec;
             fields[number] = new FieldDefinition(fieldSpec, field.Name, encoding, content, field.Sensitive);
         }
@@ -391,6 +436,7 @@ internal sealed class FieldDocument
     [JsonPropertyName("lengthType")] public string LengthType { get; set; } = "";
     [JsonPropertyName("length")] public int Length { get; set; }
     [JsonPropertyName("encoding")] public string Encoding { get; set; } = "";
+    [JsonPropertyName("lengthEncoding")] public string LengthEncoding { get; set; } = "";
     [JsonPropertyName("content")] public string Content { get; set; } = "";
     [JsonPropertyName("sensitive")] public bool Sensitive { get; set; }
 }

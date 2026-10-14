@@ -14,6 +14,14 @@ type DataEncoding string
 const (
 	ASCII  DataEncoding = "ascii"
 	Binary DataEncoding = "binary"
+	BCD    DataEncoding = "bcd"
+)
+
+type FieldPrefixEncoding string
+
+const (
+	ASCIIPrefix FieldPrefixEncoding = "ascii"
+	BCDPrefix   FieldPrefixEncoding = "bcd"
 )
 
 type ContentType string
@@ -26,10 +34,11 @@ const (
 
 type FieldDefinition struct {
 	FieldSpec
-	Name      string
-	Encoding  DataEncoding
-	Content   ContentType
-	Sensitive bool
+	Name           string
+	Encoding       DataEncoding
+	PrefixEncoding FieldPrefixEncoding
+	Content        ContentType
+	Sensitive      bool
 }
 
 type MessageRule struct {
@@ -65,12 +74,13 @@ type profileDocument struct {
 }
 
 type fieldDocument struct {
-	Name       string       `json:"name"`
-	LengthType string       `json:"lengthType"`
-	Length     int          `json:"length"`
-	Encoding   DataEncoding `json:"encoding"`
-	Content    ContentType  `json:"content"`
-	Sensitive  bool         `json:"sensitive"`
+	Name           string              `json:"name"`
+	LengthType     string              `json:"lengthType"`
+	Length         int                 `json:"length"`
+	Encoding       DataEncoding        `json:"encoding"`
+	LengthEncoding FieldPrefixEncoding `json:"lengthEncoding"`
+	Content        ContentType         `json:"content"`
+	Sensitive      bool                `json:"sensitive"`
 }
 
 type messageDocument struct {
@@ -163,6 +173,33 @@ func (transport TransportSpec) Unframe(frame []byte) ([]byte, error) {
 	return frame[transport.HeaderBytes:], nil
 }
 
+func (transport TransportSpec) TryReadFrame(data []byte) (payload []byte, consumed int, complete bool, err error) {
+	if transport.HeaderBytes == 0 {
+		if len(data) == 0 {
+			return nil, 0, false, nil
+		}
+		if len(data) > transport.MaxMessageBytes {
+			return nil, 0, false, fmt.Errorf("iso8583: payload exceeds %d bytes", transport.MaxMessageBytes)
+		}
+		return data, len(data), true, nil
+	}
+	if len(data) < transport.HeaderBytes {
+		return nil, 0, false, nil
+	}
+	length, err := transport.readLength(data[:transport.HeaderBytes])
+	if err != nil {
+		return nil, 0, false, err
+	}
+	if length > transport.MaxMessageBytes {
+		return nil, 0, false, fmt.Errorf("iso8583: framed payload exceeds %d bytes", transport.MaxMessageBytes)
+	}
+	required := transport.HeaderBytes + length
+	if len(data) < required {
+		return nil, 0, false, nil
+	}
+	return data[transport.HeaderBytes:required], required, true, nil
+}
+
 func buildProfile(document profileDocument) (Profile, error) {
 	if document.Name == "" {
 		return Profile{}, errors.New("iso8583: profile name is required")
@@ -177,16 +214,35 @@ func buildProfile(document profileDocument) (Profile, error) {
 		if err != nil {
 			return Profile{}, fmt.Errorf("iso8583: field %d: %w", number, err)
 		}
-		if field.Name == "" || (field.Encoding != ASCII && field.Encoding != Binary) ||
+		if field.Name == "" || (field.Encoding != ASCII && field.Encoding != Binary && field.Encoding != BCD) ||
 			(field.Content != Numeric && field.Content != Text && field.Content != Bytes) {
 			return Profile{}, fmt.Errorf("iso8583: field %d has invalid metadata", number)
 		}
 		if field.Encoding == Binary && field.Content != Bytes {
 			return Profile{}, fmt.Errorf("iso8583: binary field %d must use bytes content", number)
 		}
+		if field.Encoding == BCD && field.Content != Numeric {
+			return Profile{}, fmt.Errorf("iso8583: BCD field %d must use numeric content", number)
+		}
+		prefixEncoding := field.LengthEncoding
+		if prefixEncoding == "" {
+			prefixEncoding = ASCIIPrefix
+		}
+		if prefixEncoding != ASCIIPrefix && prefixEncoding != BCDPrefix {
+			return Profile{}, fmt.Errorf("iso8583: field %d has invalid length encoding", number)
+		}
+		wireEncoding := Raw
+		if field.Encoding == BCD {
+			wireEncoding = PackedBCD
+		}
+		lengthEncoding := ASCIIFieldLength
+		if prefixEncoding == BCDPrefix {
+			lengthEncoding = BCDFieldLength
+		}
 		definition := FieldDefinition{
-			FieldSpec: FieldSpec{LengthType: lengthType, Length: field.Length},
-			Name:      field.Name, Encoding: field.Encoding, Content: field.Content, Sensitive: field.Sensitive,
+			FieldSpec: FieldSpec{LengthType: lengthType, Length: field.Length, WireEncoding: wireEncoding, LengthEncoding: lengthEncoding},
+			Name:      field.Name, Encoding: field.Encoding, PrefixEncoding: prefixEncoding,
+			Content: field.Content, Sensitive: field.Sensitive,
 		}
 		if number < 2 || number > MaxField {
 			return Profile{}, fmt.Errorf("iso8583: field number %d is out of range", number)
@@ -322,7 +378,11 @@ func (transport TransportSpec) readLength(header []byte) (int, error) {
 		if transport.HeaderBytes == 2 {
 			return int(binary.BigEndian.Uint16(header)), nil
 		}
-		return int(binary.BigEndian.Uint32(header)), nil
+		length := binary.BigEndian.Uint32(header)
+		if uint64(length) > uint64(^uint(0)>>1) {
+			return 0, errors.New("iso8583: transport length overflows int")
+		}
+		return int(length), nil
 	}
 	return parseLength(header, 0, transport.HeaderBytes)
 }

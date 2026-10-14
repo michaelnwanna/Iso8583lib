@@ -60,6 +60,33 @@ func TestRejectsTruncatedField(t *testing.T) {
 	}
 }
 
+func TestPackedBCDOddDigitsWithBCDLength(t *testing.T) {
+	spec, err := NewSpec(map[int]FieldSpec{
+		2: {LengthType: LLVAR, Length: 19, WireEncoding: PackedBCD, LengthEncoding: BCDFieldLength},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	message, _ := NewMessage("0100")
+	_ = message.SetField(2, []byte("123456789012345"))
+
+	wire, err := message.AppendTo(nil, spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []byte{0x15, 0x01, 0x23, 0x45, 0x67, 0x89, 0x01, 0x23, 0x45}
+	if !bytes.Equal(wire[12:], want) {
+		t.Fatalf("unexpected BCD wire data: %x", wire[12:])
+	}
+	decoded, err := Parse(wire, spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(decoded.Fields[2]) != "123456789012345" {
+		t.Fatalf("decoded field 2 = %q", decoded.Fields[2])
+	}
+}
+
 func TestCardPurchaseAuthorizationFlow(t *testing.T) {
 	spec, err := NewSpec(map[int]FieldSpec{
 		2:  {LengthType: LLVAR, Length: 19},

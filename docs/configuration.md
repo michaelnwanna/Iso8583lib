@@ -47,7 +47,7 @@ Unknown properties are rejected by every implementation. This catches misspelled
 - `binary-big-endian`: unsigned network-byte-order length.
 - `ascii`: zero-padded decimal length occupying the configured header width.
 
-The declared length counts only the ISO 8583 payload, not the header itself. `maxMessageBytes` is enforced for inbound and outbound data. Framing methods operate on one complete frame; the host remains responsible for reading exactly the header and declared payload from a stream.
+The declared length counts only the ISO 8583 payload, not the header itself. `maxMessageBytes` is enforced for inbound and outbound data. `Unframe`/`unframe` validates one complete frame. `TryReadFrame`/`try_read_frame` instead examines a receive buffer, returns incomplete without consuming bytes, or returns one zero-copy payload plus the consumed byte count so the caller can retain a partial or following frame.
 
 ### Fields
 
@@ -65,15 +65,16 @@ The declared length counts only the ISO 8583 payload, not the header itself. `ma
 | Property | Values | Behavior |
 | --- | --- | --- |
 | `name` | Non-empty string | Operational name available as metadata |
-| `lengthType` | `fixed`, `llvar`, `lllvar` | Selects exact length or a 2/3-digit ASCII length prefix |
-| `length` | Positive integer | Exact bytes for `fixed`; maximum bytes for variable fields |
-| `encoding` | `ascii`, `binary` | ASCII rejects bytes above `0x7f`; binary accepts opaque bytes |
+| `lengthType` | `fixed`, `llvar`, `lllvar` | Selects exact length or a 2/3-digit logical length prefix |
+| `length` | Positive integer | Exact logical units for `fixed`; maximum for variable fields |
+| `encoding` | `ascii`, `binary`, `bcd` | ASCII validates bytes, binary is opaque, BCD packs numeric digits |
+| `lengthEncoding` | `ascii`, `bcd`, optional | Encodes an LLVAR/LLLVAR length as text or packed decimal; defaults to ASCII |
 | `content` | `numeric`, `text`, `bytes` | Digits only, printable ASCII, or unrestricted bytes |
 | `sensitive` | Boolean, optional | Marks data that the host must redact and protect |
 
-`binary` encoding must use `bytes` content. `llvar` supports a maximum of 99 bytes and `lllvar` a maximum of 999 bytes. The current codec writes LLVAR/LLLVAR prefixes as ASCII decimal digits.
+`binary` encoding must use `bytes` content and `bcd` must use `numeric`. LLVAR supports a maximum logical length of 99 and LLLVAR 999. ASCII prefixes occupy two or three bytes; BCD prefixes occupy one or two bytes. A BCD field's `length` counts digits, not packed bytes. Odd-digit values are left-padded with a zero nibble on the wire, and the decoder rejects non-decimal or non-zero padding nibbles.
 
-The profile validates content; it does not transform it. Pack BCD, convert EBCDIC, and encode nested TLV structures before setting the field. Decode those forms after parsing.
+Message APIs continue to accept and return unpacked ASCII digits for BCD fields. Convert EBCDIC and encode nested TLV structures before setting those fields; decode those institution-specific forms after parsing.
 
 ### Message rules
 
@@ -125,6 +126,19 @@ if err := profile.Validate(message); err != nil {
 
 Parsed Go fields reference the payload bytes. Keep the payload unchanged while the message is in use.
 
+For a chunked or coalesced TCP receive buffer:
+
+```go
+payload, consumed, complete, err := profile.Transport.TryReadFrame(receiveBuffer)
+if err != nil {
+    return err
+}
+if !complete {
+    return nil // retain the buffer and read more bytes
+}
+receiveBuffer = receiveBuffer[consumed:]
+```
+
 ### Outbound
 
 ```go
@@ -165,6 +179,8 @@ var payload = profile.Transport.Unframe(frame);
 var message = Message.Parse(payload, profile.Spec);
 profile.Validate(message);
 ```
+
+For streaming input, call `TryReadFrame(buffer, out var payload, out var consumed)`. A `false` result means more bytes are required; on success remove `consumed` bytes after parsing the returned span.
 
 ### Outbound
 
@@ -219,6 +235,8 @@ profile.validate(message);
 ```
 
 The returned unframed `string_view` references the frame. Keep the frame alive and unchanged until parsing completes.
+
+For streaming input, call `try_read_frame(data, size, payload, consumed)`. A `false` result means more bytes are required; on success retain the receive buffer while using the returned `string_view`, then remove `consumed` bytes.
 
 ### Outbound
 

@@ -16,7 +16,7 @@ A dependency-free, performance-oriented ISO 8583 codec implemented consistently 
 - No runtime dependencies outside each language's standard library
 - CI builds and tests on Linux with Go, .NET 8, GCC, and CMake
 
-The codec deliberately treats field payloads as bytes. JSON profiles validate supported ASCII/binary content and optional length headers. Character-set conversion, BCD packing, MAC calculation, cryptography, and network I/O remain composable adapters so the hot wire-codec path stays predictable.
+The codec keeps application-facing field values as bytes. JSON profiles validate ASCII/binary content, pack decimal BCD fields, and configure ASCII or BCD length prefixes. Character-set conversion, MAC calculation, cryptography, and network I/O remain composable adapters so the hot wire-codec path stays predictable.
 
 ## ISO 8583 primer
 
@@ -75,7 +75,7 @@ This project supports the three framing forms used by many profiles:
 
 For example, a 16-byte synthetic PAN in LLVAR field 2 is encoded as `16` followed by the 16 payload bytes. `Length` is exact for fixed fields and a maximum for variable fields.
 
-The field payload remains opaque to the core codec. A profile may require ASCII digits, EBCDIC, packed BCD, binary values, nested TLV data, or a network-specific character set. Validate and transform those values at the application/profile boundary.
+Most field payloads remain opaque to the core codec. Profiles can validate ASCII or binary values and explicitly pack numeric BCD values; EBCDIC, nested TLV data, and network-specific character sets remain application/profile adapters.
 
 ### Common data elements
 
@@ -188,8 +188,9 @@ Host applications can load the supported structural portion of a network contrac
 | `transport.lengthEncoding` | `binary-big-endian` or decimal `ascii`; omit when `headerBytes` is `0` |
 | `transport.maxMessageBytes` | Upper bound checked before allocation or payload acceptance |
 | `lengthType` | `fixed`, `llvar`, or `lllvar` |
-| `length` | Exact byte count for fixed fields; maximum for variable fields |
-| `encoding` | `ascii` or opaque `binary` payload validation |
+| `length` | Exact logical length for fixed fields; maximum for variable fields |
+| `encoding` | `ascii`, opaque `binary`, or numeric packed `bcd` |
+| `lengthEncoding` | Optional `ascii` or `bcd` LLVAR/LLLVAR prefix; defaults to `ascii` |
 | `content` | `numeric`, printable `text`, or unrestricted `bytes` validation |
 | `sensitive` | Metadata for host redaction/logging policy; the codec never logs fields itself |
 | `messages.<MTI>.required` | Fields that must be present for that MTI |
@@ -231,11 +232,11 @@ if err := profile.Validate(message); err != nil {
 }
 ```
 
-For outbound data, call `Validate`, encode with the profile's `Spec`/`MessageSpec`/`message_spec()`, then call `AppendFrame`, `Frame`/`TryWriteFrame`, or `append_frame`. Validation intentionally remains explicit so applications can distinguish malformed wire data from a well-formed message that violates business/profile rules.
+For outbound data, call `Validate`, encode with the profile's `Spec`/`MessageSpec`/`message_spec()`, then call `AppendFrame`, `Frame`/`TryWriteFrame`, or `append_frame`. For TCP receive buffers, `TryReadFrame`/`try_read_frame` returns one zero-copy payload and the number of consumed bytes, reports incomplete data without consuming it, and leaves any following frame for the next call. Validation intentionally remains explicit so applications can distinguish malformed wire data from a well-formed message that violates business/profile rules.
 
 Profiles are strict: unknown JSON properties, unsupported MTIs, undefined required fields, duplicate requirements, invalid lengths, non-ASCII data, non-numeric numeric fields, malformed frames, and oversized payloads are rejected. The `sensitive` flag is descriptive metadata; the host must enforce redaction and access controls.
 
-Packed BCD, EBCDIC, TLV subfields, MAC generation/verification, encryption, and key management require institution-specific adapters. They are deliberately not inferred from configuration because silently choosing those rules would be unsafe.
+Packed BCD numeric fields and packed LLVAR/LLLVAR prefixes are configured explicitly. Odd-digit values use a leading zero nibble on the wire and are returned as their original ASCII digits. EBCDIC, TLV subfields, MAC generation/verification, encryption, and key management still require institution-specific adapters.
 
 ### Encoding internals
 
@@ -257,7 +258,7 @@ Strict trailing-byte rejection catches mismatched field dictionaries early. If a
 
 ### Memory and concurrency
 
-- **Go:** `AppendTo` reuses caller-owned slice capacity. Parsed fields are zero-copy views into the input buffer, so that buffer must remain unchanged while the message is in use.
+- **Go:** `AppendTo` reuses caller-owned slice capacity. Parsed ASCII/binary fields are zero-copy views into the input buffer; packed BCD fields are decoded into owned digit slices.
 - **C#:** `TryWrite` targets a caller-provided `Span<byte>`. Parsing copies field payloads into the message, decoupling their lifetime from the input span.
 - **C++:** `append_to` reuses `std::vector` capacity. Parsing stores owned strings in the returned message.
 - C# and C++ specifications expose no mutation API. Go's `Spec.Fields` is exported for direct access, so applications must treat it as immutable after startup.
@@ -362,7 +363,7 @@ go test ./iso8583 -run '^$' -fuzz '^FuzzTransportUnframe$' -fuzztime 30s
 
 ### C#
 
-Download `Iso8583.Core.0.1.0.nupkg` from the GitHub release and add its directory as a NuGet package source, or reference `csharp/src/Iso8583.Core/Iso8583.Core.csproj` from the consuming solution.
+Download `Iso8583.Core.0.2.0.nupkg` from the GitHub release and add its directory as a NuGet package source, or reference `csharp/src/Iso8583.Core/Iso8583.Core.csproj` from the consuming solution.
 
 ```csharp
 using System.Text;
@@ -449,7 +450,7 @@ cpp/build/iso8583_benchmarks
 
 ## Conformance testing
 
-[`testdata/conformance.vectors`](testdata/conformance.vectors) pins complete payload and framed bytes for authorization request, authorization response, and secondary-bitmap network-management cases. All three implementations load that same file and must:
+[`testdata/conformance.vectors`](testdata/conformance.vectors) pins complete payload and framed bytes for authorization request, authorization response, secondary-bitmap network management, and packed-BCD network management cases. All three implementations load that same file and must:
 
 1. Encode configured fields to the exact payload bytes.
 2. Add the exact two-byte transport header.

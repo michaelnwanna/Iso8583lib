@@ -198,6 +198,7 @@ length_type parse_length_type(const std::string& value) {
 data_encoding parse_data_encoding(const std::string& value) {
     if (value == "ascii") return data_encoding::ascii;
     if (value == "binary") return data_encoding::binary;
+    if (value == "bcd") return data_encoding::packed_bcd;
     throw std::invalid_argument("iso8583: invalid field encoding " + value);
 }
 
@@ -264,6 +265,34 @@ std::string_view transport_spec::unframe(const std::uint8_t* frame, std::size_t 
     return {reinterpret_cast<const char*>(frame + header_bytes_), length};
 }
 
+bool transport_spec::try_read_frame(const std::uint8_t* data, std::size_t size, std::string_view& payload,
+                                    std::size_t& consumed) const {
+    payload = {};
+    consumed = 0;
+    if (header_bytes_ == 0) {
+        if (size == 0) return false;
+        if (size > max_message_bytes_) throw std::invalid_argument("iso8583: payload exceeds transport maximum");
+        payload = {reinterpret_cast<const char*>(data), size};
+        consumed = size;
+        return true;
+    }
+    if (size < header_bytes_) return false;
+    std::size_t length = 0;
+    for (std::size_t index = 0; index < header_bytes_; ++index) {
+        if (encoding_ == length_encoding::binary_big_endian) length = (length << 8) | data[index];
+        else {
+            if (data[index] < '0' || data[index] > '9') throw std::invalid_argument("iso8583: transport length is not decimal");
+            length = length * 10 + data[index] - '0';
+        }
+    }
+    if (length > max_message_bytes_) throw std::invalid_argument("iso8583: framed payload exceeds transport maximum");
+    const auto required = header_bytes_ + length;
+    if (size < required) return false;
+    payload = {reinterpret_cast<const char*>(data + header_bytes_), length};
+    consumed = required;
+    return true;
+}
+
 profile::profile(std::string name, spec message_spec, std::array<field_definition, max_field + 1> fields,
                  std::unordered_map<std::string, message_rule> messages, transport_spec transport)
     : name_(std::move(name)), spec_(std::move(message_spec)), fields_(std::move(fields)),
@@ -298,14 +327,24 @@ profile profile::parse_json(std::string_view json) {
     for (const auto& entry : member(root, "fields", json_value::kind::object).object) {
         const auto number = parse_field_number(entry.first);
         const auto& value = entry.second;
-        known_members(value, {"name", "lengthType", "length", "encoding", "content", "sensitive"});
-        const auto field = field_spec{parse_length_type(member(value, "lengthType", json_value::kind::string).string),
-                                      member(value, "length", json_value::kind::number).number};
+        known_members(value, {"name", "lengthType", "length", "encoding", "lengthEncoding", "content", "sensitive"});
         const auto encoding = parse_data_encoding(member(value, "encoding", json_value::kind::string).string);
         const auto content = parse_content(member(value, "content", json_value::kind::string).string);
         if (encoding == data_encoding::binary && content != content_type::bytes) {
             throw std::invalid_argument("iso8583: binary field must use bytes content");
         }
+        if (encoding == data_encoding::packed_bcd && content != content_type::numeric) {
+            throw std::invalid_argument("iso8583: BCD field must use numeric content");
+        }
+        auto field_length = field_length_encoding::ascii;
+        const auto found_length_encoding = value.object.find("lengthEncoding");
+        if (found_length_encoding != value.object.end()) {
+            if (found_length_encoding->second.type != json_value::kind::string) throw std::invalid_argument("iso8583: invalid field length encoding");
+            if (found_length_encoding->second.string == "bcd") field_length = field_length_encoding::bcd;
+            else if (found_length_encoding->second.string != "ascii") throw std::invalid_argument("iso8583: invalid field length encoding");
+        }
+        const auto field = field_spec{parse_length_type(member(value, "lengthType", json_value::kind::string).string),
+                                      member(value, "length", json_value::kind::number).number, encoding, field_length};
         auto sensitive = false;
         const auto found_sensitive = value.object.find("sensitive");
         if (found_sensitive != value.object.end()) {
