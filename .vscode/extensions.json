@@ -1,0 +1,8 @@
+{
+    "recommendations": [
+        "golang.go",
+        "ms-dotnettools.csdevkit",
+        "ms-vscode.cpptools",
+        "ms-vscode.cmake-tools"
+    ]
+}

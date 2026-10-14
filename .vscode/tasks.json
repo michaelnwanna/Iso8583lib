@@ -1,0 +1,35 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "test: all available",
+            "dependsOrder": "parallel",
+            "dependsOn": ["test: go", "test: csharp", "test: cpp"],
+            "problemMatcher": []
+        },
+        {
+            "label": "test: go",
+            "type": "shell",
+            "command": "go test ./...",
+            "options": { "cwd": "${workspaceFolder}/go" },
+            "group": "test",
+            "problemMatcher": ["$go"]
+        },
+        {
+            "label": "test: csharp",
+            "type": "shell",
+            "command": "dotnet run --project csharp/tests/Iso8583.Core.Tests -c Release",
+            "options": { "cwd": "${workspaceFolder}" },
+            "group": "test",
+            "problemMatcher": ["$msCompile"]
+        },
+        {
+            "label": "test: cpp",
+            "type": "shell",
+            "command": "cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Debug && cmake --build cpp/build --parallel && ctest --test-dir cpp/build --output-on-failure",
+            "options": { "cwd": "${workspaceFolder}" },
+            "group": "test",
+            "problemMatcher": ["$gcc"]
+        }
+    ]
+}

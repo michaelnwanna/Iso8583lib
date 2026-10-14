@@ -1,0 +1,11 @@
+.DS_Store
+.idea/
+.vs/
+.vscode/*.log
+bin/
+obj/
+cpp/build/
+coverage/
+*.user
+*.suo
+*.nupkg
