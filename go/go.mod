@@ -1,3 +1,3 @@
-module github.com/michaelnwanna/iso8583-core/go
+module github.com/michaelnwanna/Iso8583lib/go
 
 go 1.23

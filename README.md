@@ -14,7 +14,7 @@ A dependency-free, performance-oriented ISO 8583 codec implemented consistently 
 - No runtime dependencies outside each language's standard library
 - CI builds and tests on Linux with Go, .NET 8, GCC, and CMake
 
-The codec deliberately treats field payloads as bytes. Character sets, BCD, packed numerics, headers, MAC calculation, and network framing belong in composable adapters so the hot wire-codec path remains predictable.
+The codec deliberately treats field payloads as bytes. JSON profiles validate supported ASCII/binary content and optional length headers. Character-set conversion, BCD packing, MAC calculation, cryptography, and network I/O remain composable adapters so the hot wire-codec path stays predictable.
 
 ## ISO 8583 primer
 
@@ -115,10 +115,10 @@ flowchart LR
     C --> B
 ```
 
-- **Transport framing** owns network headers, message-length prefixes, connection management, retries, and timeouts. It passes exactly one ISO 8583 payload to this library.
-- **Institution profile** defines which fields are valid and whether each is fixed, LLVAR, or LLLVAR. Create it once at startup and reuse it.
+- **Transport layer** uses the profile's optional length-header codec and owns socket/queue I/O, connection management, retries, and timeouts. It passes exactly one ISO 8583 payload to the message codec.
+- **Institution profile** defines valid fields, framing, content rules, sensitive metadata, allowed MTIs, and required fields. Load it once at startup and reuse it.
 - **Codec** maps MTI, bitmap bits, length prefixes, and field bytes. It does not assign business meaning to payloads.
-- **Business layer** validates data types and required fields, authorizes or routes transactions, applies idempotency, and builds responses.
+- **Business layer** applies rules beyond the configured wire contract, authorizes or routes transactions, handles idempotency, and builds responses.
 
 ### Core abstractions
 
@@ -126,7 +126,9 @@ flowchart LR
 | --- | --- | --- | --- | --- |
 | Length form | `LengthType` | `LengthType` | `length_type` | Fixed, LLVAR, or LLLVAR framing |
 | Field definition | `FieldSpec` | `FieldSpec` | `field_spec` | Framing and exact/maximum byte length |
-| Profile | `Spec` | `MessageSpec` | `spec` | Field-number lookup table for one network contract |
+| Codec specification | `Spec` | `MessageSpec` | `spec` | Hot-path field-number lookup table |
+| Host profile | `Profile` | `Profile` | `profile` | Loaded metadata, MTI rules, validation, and generated codec specification |
+| Transport framing | `TransportSpec` | `TransportSpec` | `transport_spec` | Optional binary/ASCII message-length header |
 | Message | `Message` | `Message` | `message` | MTI and request-scoped field values |
 | Encode | `AppendTo` | `TryWrite` / `Encode` | `append_to` | Produce MTI, bitmap, prefixes, and payload bytes |
 | Decode | `Parse` | `Message.Parse` | `parse` | Validate and reconstruct a message from wire bytes |
@@ -138,13 +140,13 @@ Each implementation uses an array indexed by field number. Field lookup is $O(1)
 1. At process startup, construct the profile agreed with the receiving institution. Treat it as immutable and share it across requests.
 2. Read one complete payload using the network's transport framing. Do not include a TCP length header in the bytes passed to `Parse`.
 3. Decode the message and handle malformed input as a protocol error.
-4. Validate profile semantics such as required fields, numeric content, supported MTIs, currency, and allowed processing codes.
+4. Validate configured structure and content, then apply host business rules such as supported currencies and processing-code combinations.
 5. Perform routing or authorization and construct a new response message. Do not mutate and reuse a request across transactions.
 6. Encode into reusable output storage, add the network framing, and send the response.
 
 ### Host-configured profiles
 
-Host applications can load a complete network contract from JSON instead of compiling field definitions into application code. See [`profiles/example-acquirer.json`](profiles/example-acquirer.json) and validate custom files against [`profiles/profile.schema.json`](profiles/profile.schema.json).
+Host applications can load the supported structural portion of a network contract from JSON instead of compiling field definitions into application code. See [`profiles/example-acquirer.json`](profiles/example-acquirer.json), validate custom files against [`profiles/profile.schema.json`](profiles/profile.schema.json), and use the [configuration guide](docs/configuration.md) for the complete API and deployment workflow.
 
 ```json
 {
@@ -282,11 +284,13 @@ go test ./iso8583 -run TestCardPurchaseAuthorizationFlow -v
 
 ## Layout
 
-| Directory | Package | Minimum target |
+| Directory | Component | Minimum target |
 | --- | --- | --- |
-| `go/` | `github.com/michaelnwanna/iso8583-core/go/iso8583` | Go 1.23 |
+| `go/` | `github.com/michaelnwanna/Iso8583lib/go/iso8583` | Go 1.23 |
 | `csharp/` | `Iso8583.Core` | .NET 8 |
 | `cpp/` | `iso8583::core` | C++17 |
+| `profiles/` | Shared JSON profile, example, and JSON Schema | JSON Schema 2020-12 |
+| `docs/` | Configuration and operational guidance | Markdown |
 
 ## How to use the library
 
@@ -297,11 +301,11 @@ The same workflow applies in every language: define a profile, construct a messa
 Add the module:
 
 ```sh
-go get github.com/michaelnwanna/iso8583-core/go
+go get github.com/michaelnwanna/Iso8583lib/go
 ```
 
 ```go
-import "github.com/michaelnwanna/iso8583-core/go/iso8583"
+import "github.com/michaelnwanna/Iso8583lib/go/iso8583"
 
 spec, err := iso8583.NewSpec(map[int]iso8583.FieldSpec{
     2: {LengthType: iso8583.LLVAR, Length: 19},
@@ -437,7 +441,7 @@ Benchmarks are machine-dependent. Run the included Go benchmark on deployment-cl
 
 ISO 8583 deployments differ by network and version. Define the exact field dictionary required by your host and test it against approved network vectors. The included PAN and identifiers are synthetic test values.
 
-Do not log PAN, PIN, track, CVV, cryptograms, or key material. Production systems also need transport framing, timeouts, idempotency, reversal handling, key management, MAC verification, encryption, audit controls, observability with redaction, and PCI DSS controls. This project is a codec foundation, not a PCI DSS compliance boundary or a network-certified message profile.
+Do not log PAN, PIN, track, CVV, cryptograms, or key material. Production systems also need stream/message I/O, timeouts, idempotency, reversal handling, key management, MAC verification, encryption, audit controls, observability with redaction, and PCI DSS controls. The included transport component only adds or validates a message-length header; it does not operate connections. This project is a codec foundation, not a PCI DSS compliance boundary or a network-certified message profile.
 
 ## License
 
