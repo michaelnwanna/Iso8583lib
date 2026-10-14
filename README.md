@@ -1,6 +1,12 @@
 # ISO 8583 Core
 
+[![CI](https://github.com/michaelnwanna/Iso8583lib/actions/workflows/ci.yml/badge.svg)](https://github.com/michaelnwanna/Iso8583lib/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/michaelnwanna/Iso8583lib)](https://github.com/michaelnwanna/Iso8583lib/releases/latest)
+[![License](https://img.shields.io/github/license/michaelnwanna/Iso8583lib)](LICENSE)
+
 A dependency-free, performance-oriented ISO 8583 codec implemented consistently in Go, C#, and C++17.
+
+**Documentation:** [host configuration](docs/configuration.md) · [testing and fuzzing](docs/testing.md) · [changelog](CHANGELOG.md) · [v0.2.0 release notes](docs/release-v0.2.0.md)
 
 ## Features
 
@@ -9,6 +15,8 @@ A dependency-free, performance-oriented ISO 8583 codec implemented consistently 
 - Strict validation for undefined, oversized, truncated, and trailing data
 - Strict host profiles loaded from JSON with per-MTI required fields
 - Configurable binary/ASCII transport length headers
+- Incremental extraction from partial or concatenated transport frames
+- Packed BCD numeric fields with ASCII or BCD LLVAR/LLLVAR prefixes
 - Shared golden wire vectors verified by Go, C#, and C++
 - Seeded fuzz tests for payload, profile, and frame parsers
 - Caller-owned output buffers in each implementation's fast path
@@ -238,6 +246,21 @@ Profiles are strict: unknown JSON properties, unsupported MTIs, undefined requir
 
 Packed BCD numeric fields and packed LLVAR/LLLVAR prefixes are configured explicitly. Odd-digit values use a leading zero nibble on the wire and are returned as their original ASCII digits. EBCDIC, TLV subfields, MAC generation/verification, encryption, and key management still require institution-specific adapters.
 
+For example, this LLLVAR field accepts up to 999 application-facing digits, stores its length in two packed BCD bytes, and packs two digits per payload byte:
+
+```json
+"60": {
+    "name": "Private numeric data",
+    "lengthType": "lllvar",
+    "length": 999,
+    "encoding": "bcd",
+    "lengthEncoding": "bcd",
+    "content": "numeric"
+}
+```
+
+Set the field to ASCII digits such as `12345` in every language. The wire payload is `01 23 45`, with the leading zero nibble removed automatically when parsing. The two-byte BCD LLLVAR prefix for five digits is `00 05`; lengths always describe logical digits, not packed bytes.
+
 ### Encoding internals
 
 1. Validate the four-byte MTI and every present field against the configured specification.
@@ -305,7 +328,7 @@ The same workflow applies in every language: define a profile, construct a messa
 Add the module:
 
 ```sh
-go get github.com/michaelnwanna/Iso8583lib/go
+go get github.com/michaelnwanna/Iso8583lib/go@v0.2.0
 ```
 
 ```go
@@ -392,7 +415,7 @@ var decoded = Message.Parse(wire, spec);
 var amount = Encoding.ASCII.GetString(decoded.GetField(4).Span);
 ```
 
-Use `Encode` when convenience matters more than one output allocation. Use `TryWrite` in a hot path or when writing into a pooled/network buffer.
+`Encode` allocates a new `byte[]` for each message. Use `TryWrite` in a hot path to write into a caller-owned, pooled, or network buffer.
 
 Run the test executable:
 
@@ -410,7 +433,7 @@ add_subdirectory(path/to/Iso8583lib/cpp)
 target_link_libraries(your_target PRIVATE iso8583::core)
 ```
 
-For an installed package, configure this repository with an install prefix, install it, then use `find_package(iso8583_core 0.1 CONFIG REQUIRED)` and link the same `iso8583::core` target.
+For an installed package, configure this repository with an install prefix, install it, then use `find_package(iso8583_core 0.2 CONFIG REQUIRED)` and link the same `iso8583::core` target.
 
 ```cpp
 #include <cstdint>

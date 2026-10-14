@@ -49,6 +49,8 @@ Unknown properties are rejected by every implementation. This catches misspelled
 
 The declared length counts only the ISO 8583 payload, not the header itself. `maxMessageBytes` is enforced for inbound and outbound data. `Unframe`/`unframe` validates one complete frame. `TryReadFrame`/`try_read_frame` instead examines a receive buffer, returns incomplete without consuming bytes, or returns one zero-copy payload plus the consumed byte count so the caller can retain a partial or following frame.
 
+With `headerBytes: 0`, there is no wire boundary to discover: incremental readers treat all currently supplied bytes as one payload. Use a non-zero header or provide message boundaries in the surrounding transport when multiple messages can share a stream.
+
 ### Fields
 
 ```json
@@ -75,6 +77,36 @@ The declared length counts only the ISO 8583 payload, not the header itself. `ma
 `binary` encoding must use `bytes` content and `bcd` must use `numeric`. LLVAR supports a maximum logical length of 99 and LLLVAR 999. ASCII prefixes occupy two or three bytes; BCD prefixes occupy one or two bytes. A BCD field's `length` counts digits, not packed bytes. Odd-digit values are left-padded with a zero nibble on the wire, and the decoder rejects non-decimal or non-zero padding nibbles.
 
 Message APIs continue to accept and return unpacked ASCII digits for BCD fields. Convert EBCDIC and encode nested TLV structures before setting those fields; decode those institution-specific forms after parsing.
+
+The equivalent programmatic field specification for a BCD-encoded LLLVAR field is:
+
+```go
+iso8583.FieldSpec{
+    LengthType:     iso8583.LLLVAR,
+    Length:         999,
+    WireEncoding:   iso8583.PackedBCD,
+    LengthEncoding: iso8583.BCDFieldLength,
+}
+```
+
+```csharp
+new FieldSpec(
+    LengthType.Lllvar,
+    999,
+    FieldEncoding.PackedBcd,
+    FieldLengthEncoding.Bcd)
+```
+
+```cpp
+iso8583::field_spec{
+    iso8583::length_type::lllvar,
+    999,
+    iso8583::data_encoding::packed_bcd,
+    iso8583::field_length_encoding::bcd,
+}
+```
+
+In every case, set `"12345"` as five ASCII digits. Encoding writes three payload bytes (`01 23 45`) and decoding returns the original five digits.
 
 ### Message rules
 
@@ -171,6 +203,17 @@ var profile = Profile.LoadJson(stream);
 ```
 
 Use `Profile.ParseJson(ReadOnlySpan<byte>)` for an in-memory document.
+
+Field definitions expose the profile metadata needed for diagnostics and redaction policy:
+
+```csharp
+var pan = profile.GetFieldDefinition(2);
+Console.WriteLine(pan.Name);
+Console.WriteLine(pan.Sensitive); // true in the example profile
+Console.WriteLine(pan.Encoding);
+```
+
+`GetFieldDefinition` throws `ArgumentOutOfRangeException` outside fields 2-128 and `KeyNotFoundException` when the profile does not define the requested field.
 
 ### Inbound
 
