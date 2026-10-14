@@ -97,11 +97,50 @@ The following names provide context for the example only; they are not a normati
 
 Never assume these meanings are universal. Treat a `Spec`/`MessageSpec` as a versioned contract between endpoints, and test it with vectors approved by the receiving institution.
 
-## How the implementation works
+## Library design
 
-Each language follows the same algorithm and uses an array indexed by field number. Field lookup is therefore $O(1)$ and encoding is a bounded scan of at most 128 fields.
+The library is intentionally a small wire-codec core. It separates ISO 8583 structure from institution-specific business rules and transport concerns:
 
-### Encoding
+```mermaid
+flowchart LR
+    A[TCP, TLS, queue, or file] --> B[Transport framing]
+    B --> C[ISO 8583 codec]
+    D[Institution profile] --> C
+    C --> E[Message and byte fields]
+    E --> F[Business validation and routing]
+    F --> E
+    E --> C
+    C --> B
+```
+
+- **Transport framing** owns network headers, message-length prefixes, connection management, retries, and timeouts. It passes exactly one ISO 8583 payload to this library.
+- **Institution profile** defines which fields are valid and whether each is fixed, LLVAR, or LLLVAR. Create it once at startup and reuse it.
+- **Codec** maps MTI, bitmap bits, length prefixes, and field bytes. It does not assign business meaning to payloads.
+- **Business layer** validates data types and required fields, authorizes or routes transactions, applies idempotency, and builds responses.
+
+### Core abstractions
+
+| Concept | Go | C# | C++ | Responsibility |
+| --- | --- | --- | --- | --- |
+| Length form | `LengthType` | `LengthType` | `length_type` | Fixed, LLVAR, or LLLVAR framing |
+| Field definition | `FieldSpec` | `FieldSpec` | `field_spec` | Framing and exact/maximum byte length |
+| Profile | `Spec` | `MessageSpec` | `spec` | Field-number lookup table for one network contract |
+| Message | `Message` | `Message` | `message` | MTI and request-scoped field values |
+| Encode | `AppendTo` | `TryWrite` / `Encode` | `append_to` | Produce MTI, bitmap, prefixes, and payload bytes |
+| Decode | `Parse` | `Message.Parse` | `parse` | Validate and reconstruct a message from wire bytes |
+
+Each implementation uses an array indexed by field number. Field lookup is $O(1)$, and encoding/decoding is a bounded scan of at most 128 fields. There is no reflection, schema discovery, or global mutable registry on the transaction path.
+
+### Request lifecycle
+
+1. At process startup, construct the profile agreed with the receiving institution. Treat it as immutable and share it across requests.
+2. Read one complete payload using the network's transport framing. Do not include a TCP length header in the bytes passed to `Parse`.
+3. Decode the message and handle malformed input as a protocol error.
+4. Validate profile semantics such as required fields, numeric content, supported MTIs, currency, and allowed processing codes.
+5. Perform routing or authorization and construct a new response message. Do not mutate and reuse a request across transactions.
+6. Encode into reusable output storage, add the network framing, and send the response.
+
+### Encoding internals
 
 1. Validate the four-byte MTI and every present field against the configured specification.
 2. Scan fields 65-128 to decide whether a secondary bitmap is required.
@@ -109,7 +148,7 @@ Each language follows the same algorithm and uses an array indexed by field numb
 4. Visit present fields in ascending order, set their bitmap bits, write any LLVAR/LLLVAR prefix, and append their payloads.
 5. On an error, do not return a partial message. Go and C++ restore the caller's destination to its original length; C# validates the required length before writing.
 
-### Decoding
+### Decoding internals
 
 1. Require enough bytes for the MTI and primary bitmap.
 2. Read bit 1 to determine whether a complete secondary bitmap is available.
@@ -124,7 +163,8 @@ Strict trailing-byte rejection catches mismatched field dictionaries early. If a
 - **Go:** `AppendTo` reuses caller-owned slice capacity. Parsed fields are zero-copy views into the input buffer, so that buffer must remain unchanged while the message is in use.
 - **C#:** `TryWrite` targets a caller-provided `Span<byte>`. Parsing copies field payloads into the message, decoupling their lifetime from the input span.
 - **C++:** `append_to` reuses `std::vector` capacity. Parsing stores owned strings in the returned message.
-- Specifications are read-only after construction and may be shared. Messages are mutable and should be scoped to one transaction unless externally synchronized.
+- C# and C++ specifications expose no mutation API. Go's `Spec.Fields` is exported for direct access, so applications must treat it as immutable after startup.
+- Messages are mutable and should be scoped to one transaction unless externally synchronized.
 
 ## Financial authorization example
 
@@ -155,21 +195,55 @@ go test ./iso8583 -run TestCardPurchaseAuthorizationFlow -v
 | `csharp/` | `Iso8583.Core` | .NET 8 |
 | `cpp/` | `iso8583::core` | C++17 |
 
-## Go
+## How to use the library
 
-```go
-spec, _ := iso8583.NewSpec(map[int]iso8583.FieldSpec{
-    2: {LengthType: iso8583.LLVAR, Length: 19},
-    3: {LengthType: iso8583.Fixed, Length: 6},
-})
+The same workflow applies in every language: define a profile, construct a message, set byte fields, encode it, and parse the resulting payload with the same profile. The examples use synthetic values.
 
-message, _ := iso8583.NewMessage("0200")
-_ = message.SetField(2, []byte("4761739001010010"))
-_ = message.SetField(3, []byte("000000"))
-wire, err := message.AppendTo(make([]byte, 0, 128), spec)
+### Go
+
+Add the module:
+
+```sh
+go get github.com/michaelnwanna/iso8583-core/go
 ```
 
-Run:
+```go
+import "github.com/michaelnwanna/iso8583-core/go/iso8583"
+
+spec, err := iso8583.NewSpec(map[int]iso8583.FieldSpec{
+    2: {LengthType: iso8583.LLVAR, Length: 19},
+    3: {LengthType: iso8583.Fixed, Length: 6},
+    4: {LengthType: iso8583.Fixed, Length: 12},
+})
+if err != nil {
+    return err
+}
+
+request, err := iso8583.NewMessage("0100")
+if err != nil {
+    return err
+}
+if err := request.SetField(2, []byte("4111111111111111")); err != nil {
+    return err
+}
+_ = request.SetField(3, []byte("000000"))
+_ = request.SetField(4, []byte("000000012500"))
+
+wire, err := request.AppendTo(make([]byte, 0, 128), spec)
+if err != nil {
+    return err
+}
+
+decoded, err := iso8583.Parse(wire, spec)
+if err != nil {
+    return err
+}
+amount := string(decoded.Fields[4]) // "000000012500" means 125.00 for a 2-decimal currency.
+```
+
+`AppendTo` can append to an existing transport buffer. Preserve the input byte slice while using fields from a parsed message because parsing is zero-copy.
+
+Run tests and benchmarks:
 
 ```sh
 cd go
@@ -177,43 +251,80 @@ go test ./...
 go test -run '^$' -bench . -benchmem ./...
 ```
 
-## C#
+### C#
+
+Until a NuGet package is published, reference `csharp/src/Iso8583.Core/Iso8583.Core.csproj` from the consuming solution.
 
 ```csharp
+using System.Text;
+using Iso8583.Core;
+
 var spec = new MessageSpec(new Dictionary<int, FieldSpec>
 {
     [2] = new(LengthType.Llvar, 19),
-    [3] = new(LengthType.Fixed, 6)
+    [3] = new(LengthType.Fixed, 6),
+    [4] = new(LengthType.Fixed, 12)
 });
 
-var message = new Message("0200");
-message.SetField(2, "4761739001010010"u8);
-message.SetField(3, "000000"u8);
-Span<byte> wire = stackalloc byte[128];
-message.TryWrite(wire, spec, out var bytesWritten);
+var request = new Message("0100");
+request.SetField(2, "4111111111111111"u8);
+request.SetField(3, "000000"u8);
+request.SetField(4, "000000012500"u8);
+
+Span<byte> buffer = stackalloc byte[128];
+if (!request.TryWrite(buffer, spec, out var bytesWritten))
+{
+    throw new InvalidOperationException("Destination buffer is too small.");
+}
+
+var wire = buffer[..bytesWritten];
+var decoded = Message.Parse(wire, spec);
+var amount = Encoding.ASCII.GetString(decoded.GetField(4).Span);
 ```
 
-Run:
+Use `Encode` when convenience matters more than one output allocation. Use `TryWrite` in a hot path or when writing into a pooled/network buffer.
+
+Run the test executable:
 
 ```sh
 dotnet run --project csharp/tests/Iso8583.Core.Tests -c Release
 ```
 
-## C++
+### C++
+
+Add the repository with `add_subdirectory`, then link the exported target:
+
+```cmake
+add_subdirectory(path/to/Iso8583lib/cpp)
+target_link_libraries(your_target PRIVATE iso8583::core)
+```
 
 ```cpp
+#include <cstdint>
+#include <vector>
+
+#include "iso8583/codec.hpp"
+
 const iso8583::spec spec({
     {2, {iso8583::length_type::llvar, 19}},
     {3, {iso8583::length_type::fixed, 6}},
+    {4, {iso8583::length_type::fixed, 12}},
 });
 
-iso8583::message message("0200");
-message.set_field(2, "4761739001010010");
-message.set_field(3, "000000");
+iso8583::message request("0100");
+request.set_field(2, "4111111111111111");
+request.set_field(3, "000000");
+request.set_field(4, "000000012500");
+
 std::vector<std::uint8_t> wire;
 wire.reserve(128);
-message.append_to(wire, spec);
+request.append_to(wire, spec);
+
+const auto decoded = iso8583::parse(wire, spec);
+const auto amount = decoded.field(4);
 ```
+
+Catch `std::invalid_argument` for malformed messages or values and `std::out_of_range` for invalid field numbers. Reserve or reuse vector capacity in transaction loops.
 
 Build and test:
 
