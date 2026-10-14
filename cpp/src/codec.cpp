@@ -1,5 +1,6 @@
 #include "iso8583/codec.hpp"
 
+#include <algorithm>
 #include <stdexcept>
 
 namespace iso8583 {
