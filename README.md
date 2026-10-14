@@ -130,6 +130,12 @@ flowchart LR
 - **Codec** maps MTI, bitmap bits, length prefixes, and field bytes. It does not assign business meaning to payloads.
 - **Business layer** applies rules beyond the configured wire contract, authorizes or routes transactions, handles idempotency, and builds responses.
 
+### How a transaction flows
+
+![Animated ISO 8583 request and response flow](docs/assets/iso8583-flow.svg)
+
+Load the institution profile once, then reuse its immutable specification and transport settings. For each request, extract one frame, parse and validate it, apply business logic, create a response message, validate and encode it, and add the transport frame. The concrete entry points are `TryReadFrame`, `Parse`, `Validate`, and `AppendFrame` in Go; their `PascalCase` equivalents in C#; and `try_read_frame`, `parse`, `validate`, and `append_frame` in C++.
+
 ### Core abstractions
 
 | Concept | Go | C# | C++ | Responsibility |

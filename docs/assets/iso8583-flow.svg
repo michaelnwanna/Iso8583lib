@@ -1,0 +1,112 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="360" viewBox="0 0 960 360" role="img" aria-labelledby="title description">
+  <title id="title">ISO 8583 Core request and response flow</title>
+  <desc id="description">An institution profile configures the codec. A framed request is extracted, parsed, validated, handled, encoded, and framed as a response.</desc>
+  <style>
+    text { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing: 0; }
+    .canvas { fill: #f5f7fa; }
+    .banner-heading { fill: #ffffff; font-size: 20px; font-weight: 700; }
+    .label { fill: #17212b; font-size: 14px; font-weight: 700; }
+    .detail { fill: #52606d; font-size: 11px; }
+    .step { fill: #ffffff; stroke: #9aa5b1; stroke-width: 1.5; }
+    .step-number { fill: #ffffff; font-size: 11px; font-weight: 700; text-anchor: middle; }
+    .connector { fill: none; stroke: #9aa5b1; stroke-width: 2; }
+    .profile-line { fill: none; stroke: #d97706; stroke-dasharray: 5 5; stroke-width: 2; }
+    .packet { fill: #087e8b; }
+    .response { fill: #d1495b; }
+    .pulse { animation: pulse 6s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+    .delay-1 { animation-delay: 0.7s; }
+    .delay-2 { animation-delay: 1.5s; }
+    .delay-3 { animation-delay: 2.3s; }
+    .delay-4 { animation-delay: 3.1s; }
+    @keyframes pulse {
+      0%, 13%, 100% { stroke: #9aa5b1; stroke-width: 1.5; }
+      6% { stroke: #087e8b; stroke-width: 3; }
+    }
+    @media (prefers-color-scheme: dark) {
+      .canvas { fill: #111820; }
+      .label { fill: #f0f4f8; }
+      .detail { fill: #bcccdc; }
+      .step { fill: #202b36; stroke: #829ab1; }
+      .connector { stroke: #829ab1; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .pulse { animation: none; }
+      animateMotion { display: none; }
+    }
+  </style>
+
+  <rect class="canvas" width="960" height="360" rx="8"/>
+  <path d="M0 0h960v58H0z" fill="#17212b"/>
+  <text class="banner-heading" x="28" y="36">One message, from wire to business logic and back</text>
+
+  <rect x="326" y="76" width="308" height="52" rx="6" fill="#fff7ed" stroke="#d97706" stroke-width="1.5"/>
+  <text class="label" x="348" y="98">Institution profile</text>
+  <text class="detail" x="348" y="116">fields · lengths · BCD · MTI rules · framing</text>
+  <path class="profile-line" d="M480 128v34"/>
+
+  <path class="connector" d="M34 240H926"/>
+  <path d="M926 240l-10-6v12z" fill="#9aa5b1"/>
+
+  <g class="pulse">
+    <rect class="step" x="28" y="178" width="154" height="124" rx="7"/>
+    <circle cx="50" cy="198" r="11" fill="#087e8b"/>
+    <text class="step-number" x="50" y="202">1</text>
+    <text class="label" x="70" y="203">Read frame</text>
+    <text class="detail" x="45" y="230">TryReadFrame</text>
+    <text class="detail" x="45" y="249">handles partial or</text>
+    <text class="detail" x="45" y="266">coalesced TCP data</text>
+  </g>
+
+  <g class="pulse delay-1">
+    <rect class="step" x="215" y="178" width="154" height="124" rx="7"/>
+    <circle cx="237" cy="198" r="11" fill="#087e8b"/>
+    <text class="step-number" x="237" y="202">2</text>
+    <text class="label" x="257" y="203">Parse</text>
+    <text class="detail" x="232" y="230">MTI + bitmap</text>
+    <text class="detail" x="232" y="249">length prefixes</text>
+    <text class="detail" x="232" y="266">ASCII / binary / BCD</text>
+  </g>
+
+  <g class="pulse delay-2">
+    <rect class="step" x="402" y="178" width="154" height="124" rx="7"/>
+    <circle cx="424" cy="198" r="11" fill="#087e8b"/>
+    <text class="step-number" x="424" y="202">3</text>
+    <text class="label" x="444" y="203">Validate</text>
+    <text class="detail" x="419" y="230">required fields</text>
+    <text class="detail" x="419" y="249">sizes and content</text>
+    <text class="detail" x="419" y="266">profile contract</text>
+  </g>
+
+  <g class="pulse delay-3">
+    <rect class="step" x="589" y="178" width="154" height="124" rx="7"/>
+    <circle cx="611" cy="198" r="11" fill="#087e8b"/>
+    <text class="step-number" x="611" y="202">4</text>
+    <text class="label" x="631" y="203">Handle</text>
+    <text class="detail" x="606" y="230">authorize or route</text>
+    <text class="detail" x="606" y="249">build response</text>
+    <text class="detail" x="606" y="266">apply business rules</text>
+  </g>
+
+  <g class="pulse delay-4">
+    <rect class="step" x="776" y="178" width="154" height="124" rx="7"/>
+    <circle cx="798" cy="198" r="11" fill="#d1495b"/>
+    <text class="step-number" x="798" y="202">5</text>
+    <text class="label" x="818" y="203">Write frame</text>
+    <text class="detail" x="793" y="230">validate + encode</text>
+    <text class="detail" x="793" y="249">add length header</text>
+    <text class="detail" x="793" y="266">reuse output buffer</text>
+  </g>
+
+  <circle class="packet" r="6">
+    <animateMotion dur="6s" repeatCount="indefinite" path="M34 240H926"/>
+  </circle>
+  <circle class="response" r="5" opacity="0">
+    <animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.55;0.58;0.98;1" dur="6s" repeatCount="indefinite"/>
+    <animateMotion dur="6s" repeatCount="indefinite" path="M926 286H34" keyPoints="0;0;1;1" keyTimes="0;0.55;0.98;1" calcMode="linear"/>
+  </circle>
+
+  <text class="detail" x="28" y="336">REQUEST</text>
+  <rect x="92" y="326" width="44" height="13" rx="3" fill="#087e8b"/>
+  <text class="detail" x="782" y="336">RESPONSE</text>
+  <rect x="856" y="326" width="44" height="13" rx="3" fill="#d1495b"/>
+</svg>
