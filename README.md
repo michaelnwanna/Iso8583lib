@@ -9,6 +9,8 @@ A dependency-free, performance-oriented ISO 8583 codec implemented consistently 
 - Strict validation for undefined, oversized, truncated, and trailing data
 - Strict host profiles loaded from JSON with per-MTI required fields
 - Configurable binary/ASCII transport length headers
+- Shared golden wire vectors verified by Go, C#, and C++
+- Seeded fuzz tests for payload, profile, and frame parsers
 - Caller-owned output buffers in each implementation's fast path
 - Immutable message specifications after construction
 - No runtime dependencies outside each language's standard library
@@ -290,6 +292,7 @@ go test ./iso8583 -run TestCardPurchaseAuthorizationFlow -v
 | `csharp/` | `Iso8583.Core` | .NET 8 |
 | `cpp/` | `iso8583::core` | C++17 |
 | `profiles/` | Shared JSON profile, example, and JSON Schema | JSON Schema 2020-12 |
+| `testdata/` | Language-neutral payload and transport conformance vectors | Text |
 | `docs/` | Configuration and operational guidance | Markdown |
 
 ## How to use the library
@@ -346,6 +349,15 @@ Run tests and benchmarks:
 cd go
 go test ./...
 go test -run '^$' -bench . -benchmem ./...
+```
+
+Run the native Go fuzz targets:
+
+```sh
+cd go
+go test ./iso8583 -run '^$' -fuzz '^FuzzParse$' -fuzztime 30s
+go test ./iso8583 -run '^$' -fuzz '^FuzzParseProfileJSON$' -fuzztime 30s
+go test ./iso8583 -run '^$' -fuzz '^FuzzTransportUnframe$' -fuzztime 30s
 ```
 
 ### C#
@@ -430,6 +442,17 @@ cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Release
 cmake --build cpp/build --parallel
 ctest --test-dir cpp/build --output-on-failure
 ```
+
+## Conformance testing
+
+[`testdata/conformance.vectors`](testdata/conformance.vectors) pins complete payload and framed bytes for authorization request, authorization response, and secondary-bitmap network-management cases. All three implementations load that same file and must:
+
+1. Encode configured fields to the exact payload bytes.
+2. Add the exact two-byte transport header.
+3. Decode the pinned payload and recover every field.
+4. Pass profile validation after decoding.
+
+This catches wire-format drift that independent round-trip tests can miss. See the [testing guide](docs/testing.md) before adding or changing a vector.
 
 ## Performance
 

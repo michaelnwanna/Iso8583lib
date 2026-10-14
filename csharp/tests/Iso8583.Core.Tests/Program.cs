@@ -92,6 +92,27 @@ var configuredMessage = Message.Parse(configuredProfile.Transport.Unframe(config
 configuredProfile.Validate(configuredMessage);
 Assert(configuredProfile.GetFieldDefinition(2).Sensitive, "PAN metadata is not marked sensitive");
 
+foreach (var vector in LoadVectors(Path.Combine(AppContext.BaseDirectory, "conformance.vectors")))
+{
+    var vectorMessage = new Message(vector.Mti);
+    foreach (var (number, value) in vector.Fields)
+    {
+        vectorMessage.SetField(number, Encoding.ASCII.GetBytes(value));
+    }
+
+    configuredProfile.Validate(vectorMessage);
+    var vectorPayload = vectorMessage.Encode(configuredProfile.Spec);
+    Assert(vectorPayload.AsSpan().SequenceEqual(vector.Payload), $"{vector.Name}: payload differs from golden vector");
+    Assert(configuredProfile.Transport.Frame(vectorPayload).AsSpan().SequenceEqual(vector.Frame), $"{vector.Name}: frame differs from golden vector");
+
+    var vectorDecoded = Message.Parse(vector.Payload, configuredProfile.Spec);
+    configuredProfile.Validate(vectorDecoded);
+    foreach (var (number, value) in vector.Fields)
+    {
+        Assert(vectorDecoded.GetField(number).Span.SequenceEqual(Encoding.ASCII.GetBytes(value)), $"{vector.Name}: field {number} differs");
+    }
+}
+
 var incompleteRequest = new Message("0100");
 incompleteRequest.SetField(2, "4111111111111111"u8);
 try
@@ -103,6 +124,41 @@ catch (InvalidOperationException)
 {
 }
 
+static List<ConformanceVector> LoadVectors(string path)
+{
+    var vectors = new List<ConformanceVector>();
+    foreach (var line in File.ReadLines(path))
+    {
+        if (line.Length == 0 || line.StartsWith('#'))
+        {
+            continue;
+        }
+
+        var parts = line.Split('|');
+        if (parts.Length != 5)
+        {
+            throw new FormatException($"Invalid conformance vector: {line}");
+        }
+
+        var fields = new Dictionary<int, string>();
+        foreach (var pair in parts[2].Split(';'))
+        {
+            var separator = pair.IndexOf('=');
+            if (separator <= 0)
+            {
+                throw new FormatException($"Invalid vector field: {pair}");
+            }
+
+            fields.Add(int.Parse(pair.AsSpan(0, separator)), pair[(separator + 1)..]);
+        }
+
+        vectors.Add(new ConformanceVector(
+            parts[0], parts[1], fields, Convert.FromHexString(parts[3]), Convert.FromHexString(parts[4])));
+    }
+
+    return vectors;
+}
+
 static void Assert(bool condition, string message)
 {
     if (!condition)
@@ -110,3 +166,10 @@ static void Assert(bool condition, string message)
         throw new Exception(message);
     }
 }
+
+internal sealed record ConformanceVector(
+    string Name,
+    string Mti,
+    IReadOnlyDictionary<int, string> Fields,
+    byte[] Payload,
+    byte[] Frame);

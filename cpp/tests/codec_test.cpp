@@ -4,6 +4,8 @@
 #include <cstdint>
 #include <fstream>
 #include <stdexcept>
+#include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace {
@@ -12,6 +14,62 @@ void require(bool condition, const char* message) {
     if (!condition) {
         throw std::runtime_error(message);
     }
+}
+
+struct conformance_vector {
+    std::string name;
+    std::string mti;
+    std::unordered_map<std::size_t, std::string> fields;
+    std::vector<std::uint8_t> payload;
+    std::vector<std::uint8_t> frame;
+};
+
+std::vector<std::string> split(const std::string& value, char delimiter) {
+    std::vector<std::string> parts;
+    std::size_t start = 0;
+    while (true) {
+        const auto end = value.find(delimiter, start);
+        parts.push_back(value.substr(start, end - start));
+        if (end == std::string::npos) return parts;
+        start = end + 1;
+    }
+}
+
+std::vector<std::uint8_t> decode_hex(const std::string& value) {
+    if (value.size() % 2 != 0) throw std::runtime_error("odd conformance hex length");
+    std::vector<std::uint8_t> output;
+    output.reserve(value.size() / 2);
+    auto digit = [](char character) -> std::uint8_t {
+        if (character >= '0' && character <= '9') return static_cast<std::uint8_t>(character - '0');
+        if (character >= 'A' && character <= 'F') return static_cast<std::uint8_t>(character - 'A' + 10);
+        if (character >= 'a' && character <= 'f') return static_cast<std::uint8_t>(character - 'a' + 10);
+        throw std::runtime_error("invalid conformance hex digit");
+    };
+    for (std::size_t index = 0; index < value.size(); index += 2) {
+        output.push_back(static_cast<std::uint8_t>((digit(value[index]) << 4) | digit(value[index + 1])));
+    }
+    return output;
+}
+
+std::vector<conformance_vector> load_vectors(const char* path) {
+    std::ifstream input(path);
+    if (!input) throw std::runtime_error("conformance vectors could not be opened");
+    std::vector<conformance_vector> vectors;
+    std::string line;
+    while (std::getline(input, line)) {
+        if (line.empty() || line.front() == '#') continue;
+        const auto parts = split(line, '|');
+        if (parts.size() != 5) throw std::runtime_error("invalid conformance vector");
+        conformance_vector vector{parts[0], parts[1], {}, decode_hex(parts[3]), decode_hex(parts[4])};
+        for (const auto& pair : split(parts[2], ';')) {
+            const auto separator = pair.find('=');
+            if (separator == std::string::npos) throw std::runtime_error("invalid conformance field");
+            vector.fields.emplace(static_cast<std::size_t>(std::stoul(pair.substr(0, separator))), pair.substr(separator + 1));
+        }
+        vectors.push_back(std::move(vector));
+    }
+    if (vectors.empty()) throw std::runtime_error("no conformance vectors loaded");
+    return vectors;
 }
 
 }  // namespace
@@ -118,6 +176,25 @@ int main() {
         reinterpret_cast<const std::uint8_t*>(unframed.data()), unframed.size(), configured_profile.message_spec());
     configured_profile.validate(configured_message);
     require(configured_profile.field(2).sensitive, "PAN metadata is not marked sensitive");
+
+    for (const auto& vector : load_vectors(ISO8583_CONFORMANCE_VECTORS)) {
+        iso8583::message vector_message(vector.mti);
+        for (const auto& entry : vector.fields) vector_message.set_field(entry.first, entry.second);
+        configured_profile.validate(vector_message);
+
+        std::vector<std::uint8_t> vector_payload;
+        vector_message.append_to(vector_payload, configured_profile.message_spec());
+        require(vector_payload == vector.payload, "payload differs from shared conformance vector");
+        std::vector<std::uint8_t> vector_frame;
+        configured_profile.transport().append_frame(vector_frame, vector_payload);
+        require(vector_frame == vector.frame, "frame differs from shared conformance vector");
+
+        const auto vector_decoded = iso8583::parse(vector.payload, configured_profile.message_spec());
+        configured_profile.validate(vector_decoded);
+        for (const auto& entry : vector.fields) {
+            require(vector_decoded.field(entry.first) == entry.second, "decoded field differs from shared conformance vector");
+        }
+    }
 
     iso8583::message incomplete_request("0100");
     incomplete_request.set_field(2, "4111111111111111");

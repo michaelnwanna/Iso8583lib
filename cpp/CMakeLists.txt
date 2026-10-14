@@ -17,7 +17,8 @@ if(ISO8583_BUILD_TESTS)
     add_executable(iso8583_tests tests/codec_test.cpp)
     target_link_libraries(iso8583_tests PRIVATE iso8583::core)
     target_compile_definitions(iso8583_tests PRIVATE
-        ISO8583_EXAMPLE_PROFILE="${CMAKE_CURRENT_SOURCE_DIR}/../profiles/example-acquirer.json")
+        ISO8583_EXAMPLE_PROFILE="${CMAKE_CURRENT_SOURCE_DIR}/../profiles/example-acquirer.json"
+        ISO8583_CONFORMANCE_VECTORS="${CMAKE_CURRENT_SOURCE_DIR}/../testdata/conformance.vectors")
     add_test(NAME iso8583_tests COMMAND iso8583_tests)
 endif()
 

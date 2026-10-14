@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func loadExampleProfile(t *testing.T) Profile {
+func loadExampleProfile(t testing.TB) Profile {
 	t.Helper()
 	_, source, _, _ := runtime.Caller(0)
 	file, err := os.Open(filepath.Join(filepath.Dir(source), "..", "..", "profiles", "example-acquirer.json"))
